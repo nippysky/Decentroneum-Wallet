@@ -1,6 +1,6 @@
 // app/(tabs)/browser.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, TextInput, View } from "react-native";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
@@ -11,10 +11,10 @@ import { T } from "@/src/ui/T";
 import { useSession } from "@/src/state/session";
 
 const FEATURED = [
-  { name: "ElectroSwap", url: "https://electroswap.io" },
-  { name: "Block Explorer", url: "https://blockexplorer.electroneum.com" },
   { name: "Decentroneum", url: "https://decentroneum.com" },
   { name: "Panthart", url: "https://panth.art" },
+  { name: "ElectroSwap", url: "https://electroswap.io" },
+  { name: "Block Explorer", url: "https://blockexplorer.electroneum.com" },
 ];
 
 type RecentItem = {
@@ -23,7 +23,8 @@ type RecentItem = {
   lastVisited: number;
 };
 
-const RECENTS_KEY = "dw:browser:recents:v1";
+// SecureStore keys must be alphanumeric + . - _
+const RECENTS_KEY = "dw.browser.recents.v1";
 const MAX_RECENTS = 20;
 
 function normalizeToUrl(input: string) {
@@ -41,12 +42,14 @@ function stripDw(url: string) {
     u.searchParams.delete("dw");
     return u.toString();
   } catch {
-    return url.replace(/([?&])dw=\d+(&?)/g, (m, p1, p2) => {
-      if (p1 === "?" && p2) return "?";
-      if (p1 === "?" && !p2) return "";
-      if (p1 === "&" && p2) return "&";
-      return "";
-    }).replace(/[?&]$/, "");
+    return url
+      .replace(/([?&])dw=\d+(&?)/g, (m, p1, p2) => {
+        if (p1 === "?" && p2) return "?";
+        if (p1 === "?" && !p2) return "";
+        if (p1 === "&" && p2) return "&";
+        return "";
+      })
+      .replace(/[?&]$/, "");
   }
 }
 
@@ -105,9 +108,16 @@ export default function Browser() {
 
   const [value, setValue] = useState("");
   const hint = useMemo(() => "Search or enter website", []);
+
   const [recents, setRecents] = useState<RecentItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const isUnlocked = useSession((s) => s.isUnlocked);
+
+  const refreshRecents = useCallback(async () => {
+    const items = await readRecents();
+    setRecents(items);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -120,31 +130,36 @@ export default function Browser() {
     };
   }, []);
 
-  const refreshRecents = useMemo(
-    () => async () => {
-      const items = await readRecents();
-      setRecents(items);
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshRecents();
+    } finally {
+      // lightning-fast feel
+      setTimeout(() => setRefreshing(false), 120);
+    }
+  }, [refreshRecents]);
+
+  const go = useCallback(
+    async (raw: string) => {
+      const url = normalizeToUrl(raw);
+      if (!url) return;
+
+      await upsertRecent(url);
+      await refreshRecents();
+
+      router.push({
+        pathname: "/browser/web" as any,
+        params: { url },
+      });
     },
-    []
+    [refreshRecents, router]
   );
 
-  const go = async (raw: string) => {
-    const url = normalizeToUrl(raw);
-    if (!url) return;
-
-    await upsertRecent(url);
-    await refreshRecents();
-
-    router.push({
-      pathname: "/browser/web" as any,
-      params: { url },
-    });
-  };
-
-  const clearRecents = async () => {
+  const clearRecents = useCallback(async () => {
     await SecureStore.deleteItemAsync(RECENTS_KEY);
     setRecents([]);
-  };
+  }, []);
 
   const query = value.trim().toLowerCase();
 
@@ -176,150 +191,89 @@ export default function Browser() {
       ...featuredMatches,
     ];
 
-    // de-dupe by url
     const seen = new Set<string>();
-    return out.filter((x) => {
-      if (seen.has(x.url)) return false;
-      seen.add(x.url);
-      return true;
-    }).slice(0, 8);
+    return out
+      .filter((x) => {
+        if (seen.has(x.url)) return false;
+        seen.add(x.url);
+        return true;
+      })
+      .slice(0, 8);
   }, [query, recents, value]);
 
   if (!isUnlocked) return <Redirect href="/unlock" />;
 
   return (
     <Screen>
-      <View style={{ gap: 14 }}>
-        <T variant="h2" weight="bold">
-          Browser
-        </T>
-
-        {/* URL bar */}
-        <View
-          style={{
-            borderRadius: 18,
-            borderWidth: 1,
-            borderColor: theme.border,
-            backgroundColor: theme.card,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <Ionicons name="globe-outline" size={18} color={theme.muted} />
-          <TextInput
-            value={value}
-            onChangeText={setValue}
-            placeholder={hint}
-            placeholderTextColor={theme.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-            returnKeyType="go"
-            onSubmitEditing={() => go(value)}
-            style={{
-              flex: 1,
-              color: theme.text,
-              fontSize: 16,
-              fontFamily: "Lexend_500Medium",
-              paddingVertical: 6,
-            }}
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onPullRefresh}
+            tintColor={theme.muted}
           />
-          <Pressable
-            onPress={() => go(value)}
-            style={({ pressed }) => [
-              {
-                width: 40,
-                height: 40,
-                borderRadius: 14,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: theme.primary,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="arrow-forward" size={18} color={theme.bg} />
-          </Pressable>
-        </View>
+        }
+      >
+        <View style={{ gap: 14 }}>
+          <T variant="h2" weight="bold">
+            Browser
+          </T>
 
-        {/* Suggestions (while typing) */}
-        {query ? (
+          {/* URL bar */}
           <View
             style={{
-              borderRadius: 22,
+              borderRadius: 18,
               borderWidth: 1,
               borderColor: theme.border,
               backgroundColor: theme.card,
-              overflow: "hidden",
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
             }}
           >
-            {suggestions.map((s, idx) => (
-              <Pressable
-                key={`${s.kind}:${s.url}`}
-                onPress={() => go(s.url)}
-                style={({ pressed }) => ({
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
-                  flexDirection: "row",
+            <Ionicons name="globe-outline" size={18} color={theme.muted} />
+            <TextInput
+              value={value}
+              onChangeText={setValue}
+              placeholder={hint}
+              placeholderTextColor={theme.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="go"
+              onSubmitEditing={() => go(value)}
+              style={{
+                flex: 1,
+                color: theme.text,
+                fontSize: 16,
+                fontFamily: "Lexend_500Medium",
+                paddingVertical: 6,
+              }}
+            />
+            <Pressable
+              onPress={() => go(value)}
+              style={({ pressed }) => [
+                {
+                  width: 40,
+                  height: 40,
+                  borderRadius: 14,
                   alignItems: "center",
-                  justifyContent: "space-between",
-                  opacity: pressed ? 0.92 : 1,
-                  borderTopWidth: idx === 0 ? 0 : 1,
-                  borderTopColor: theme.border,
-                })}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                  <View
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      backgroundColor: theme.bg,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {faviconUrl(s.url) ? (
-                      <Image source={{ uri: faviconUrl(s.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
-                    ) : (
-                      <Ionicons name="link-outline" size={18} color={theme.text} />
-                    )}
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <T weight="semibold" numberOfLines={1}>
-                      {s.name}
-                    </T>
-                    <T variant="caption" color={theme.muted} numberOfLines={1}>
-                      {s.meta} • {s.url.replace(/^https?:\/\//, "")}
-                    </T>
-                  </View>
-                </View>
-
-                <Ionicons name="chevron-forward" size={18} color={theme.muted} />
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-
-        {/* Recents */}
-        <View style={{ gap: 10, marginTop: query ? 2 : 6 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <T weight="bold">Recents</T>
-            <Pressable onPress={clearRecents} disabled={recents.length === 0}>
-              <T variant="caption" color={recents.length ? theme.muted : theme.border}>
-                Clear
-              </T>
+                  justifyContent: "center",
+                  backgroundColor: theme.primary,
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="arrow-forward" size={18} color={theme.bg} />
             </Pressable>
           </View>
 
-          {recents.length ? (
+          {/* Suggestions (while typing) */}
+          {query ? (
             <View
               style={{
                 borderRadius: 22,
@@ -329,10 +283,10 @@ export default function Browser() {
                 overflow: "hidden",
               }}
             >
-              {recents.slice(0, 8).map((r, idx) => (
+              {suggestions.map((s, idx) => (
                 <Pressable
-                  key={r.url}
-                  onPress={() => go(r.url)}
+                  key={`${s.kind}:${s.url}`}
+                  onPress={() => go(s.url)}
                   style={({ pressed }) => ({
                     paddingHorizontal: 16,
                     paddingVertical: 14,
@@ -358,19 +312,19 @@ export default function Browser() {
                         overflow: "hidden",
                       }}
                     >
-                      {faviconUrl(r.url) ? (
-                        <Image source={{ uri: faviconUrl(r.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                      {faviconUrl(s.url) ? (
+                        <Image source={{ uri: faviconUrl(s.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
                       ) : (
-                        <Ionicons name="time-outline" size={18} color={theme.text} />
+                        <Ionicons name="link-outline" size={18} color={theme.text} />
                       )}
                     </View>
 
                     <View style={{ flex: 1 }}>
                       <T weight="semibold" numberOfLines={1}>
-                        {r.title || new URL(r.url).host}
+                        {s.name}
                       </T>
                       <T variant="caption" color={theme.muted} numberOfLines={1}>
-                        {timeAgo(r.lastVisited)} • {r.url.replace(/^https?:\/\//, "")}
+                        {s.meta} • {s.url.replace(/^https?:\/\//, "")}
                       </T>
                     </View>
                   </View>
@@ -379,93 +333,167 @@ export default function Browser() {
                 </Pressable>
               ))}
             </View>
-          ) : (
+          ) : null}
+
+          {/* Recents */}
+          <View style={{ gap: 10, marginTop: query ? 2 : 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <T weight="bold">Recents</T>
+              <Pressable onPress={clearRecents} disabled={recents.length === 0}>
+                <T variant="caption" color={recents.length ? theme.muted : theme.border}>
+                  Clear
+                </T>
+              </Pressable>
+            </View>
+
+            {recents.length ? (
+              <View
+                style={{
+                  borderRadius: 22,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  backgroundColor: theme.card,
+                  overflow: "hidden",
+                }}
+              >
+                {recents.slice(0, 10).map((r, idx) => (
+                  <Pressable
+                    key={r.url}
+                    onPress={() => go(r.url)}
+                    style={({ pressed }) => ({
+                      paddingHorizontal: 16,
+                      paddingVertical: 14,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      opacity: pressed ? 0.92 : 1,
+                      borderTopWidth: idx === 0 ? 0 : 1,
+                      borderTopColor: theme.border,
+                    })}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                      <View
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: theme.border,
+                          backgroundColor: theme.bg,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {faviconUrl(r.url) ? (
+                          <Image source={{ uri: faviconUrl(r.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                        ) : (
+                          <Ionicons name="time-outline" size={18} color={theme.text} />
+                        )}
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <T weight="semibold" numberOfLines={1}>
+                          {r.title || new URL(r.url).host}
+                        </T>
+                        <T variant="caption" color={theme.muted} numberOfLines={1}>
+                          {timeAgo(r.lastVisited)} • {r.url.replace(/^https?:\/\//, "")}
+                        </T>
+                      </View>
+                    </View>
+
+                    <Ionicons name="chevron-forward" size={18} color={theme.muted} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View
+                style={{
+                  borderRadius: 22,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  backgroundColor: theme.card,
+                  padding: 16,
+                }}
+              >
+                <T color={theme.muted}>No recent sites yet. Pull to refresh anytime.</T>
+              </View>
+            )}
+          </View>
+
+          {/* Featured */}
+          <View style={{ gap: 10, marginTop: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <T weight="bold">Featured</T>
+              <T variant="caption" color={theme.muted}>
+                Curated
+              </T>
+            </View>
+
             <View
               style={{
                 borderRadius: 22,
                 borderWidth: 1,
                 borderColor: theme.border,
                 backgroundColor: theme.card,
-                padding: 16,
+                overflow: "hidden",
               }}
             >
-              <T color={theme.muted}>No recent sites yet.</T>
-            </View>
-          )}
-        </View>
+              {FEATURED.map((d, idx) => (
+                <Pressable
+                  key={d.url}
+                  onPress={() => go(d.url)}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    opacity: pressed ? 0.92 : 1,
+                    borderTopWidth: idx === 0 ? 0 : 1,
+                    borderTopColor: theme.border,
+                  })}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                    <View
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        backgroundColor: theme.bg,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {faviconUrl(d.url) ? (
+                        <Image source={{ uri: faviconUrl(d.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                      ) : (
+                        <Ionicons name="link-outline" size={18} color={theme.text} />
+                      )}
+                    </View>
 
-        {/* Featured */}
-        <View style={{ gap: 10, marginTop: 6 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <T weight="bold">Featured</T>
-            <T variant="caption" color={theme.muted}>
-              Curated
+                    <View style={{ flex: 1 }}>
+                      <T weight="semibold">{d.name}</T>
+                      <T variant="caption" color={theme.muted} numberOfLines={1}>
+                        {d.url.replace(/^https?:\/\//, "")}
+                      </T>
+                    </View>
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={18} color={theme.muted} />
+                </Pressable>
+              ))}
+            </View>
+
+            <T variant="caption" color={theme.muted} style={{ marginTop: 2 }}>
+              Only connect to sites you trust.
             </T>
           </View>
-
-          <View
-            style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: theme.border,
-              backgroundColor: theme.card,
-              overflow: "hidden",
-            }}
-          >
-            {FEATURED.map((d, idx) => (
-              <Pressable
-                key={d.url}
-                onPress={() => go(d.url)}
-                style={({ pressed }) => ({
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  opacity: pressed ? 0.92 : 1,
-                  borderTopWidth: idx === 0 ? 0 : 1,
-                  borderTopColor: theme.border,
-                })}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                  <View
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      backgroundColor: theme.bg,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {faviconUrl(d.url) ? (
-                      <Image source={{ uri: faviconUrl(d.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
-                    ) : (
-                      <Ionicons name="link-outline" size={18} color={theme.text} />
-                    )}
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <T weight="semibold">{d.name}</T>
-                    <T variant="caption" color={theme.muted} numberOfLines={1}>
-                      {d.url.replace(/^https?:\/\//, "")}
-                    </T>
-                  </View>
-                </View>
-
-                <Ionicons name="chevron-forward" size={18} color={theme.muted} />
-              </Pressable>
-            ))}
-          </View>
-
-          <T variant="caption" color={theme.muted} style={{ marginTop: 2 }}>
-            Only connect to sites you trust.
-          </T>
         </View>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
