@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -23,8 +24,9 @@ type RecentItem = {
   lastVisited: number;
 };
 
-// SecureStore keys must be alphanumeric + . - _
-const RECENTS_KEY = "dw.browser.recents.v1";
+// Migrate from old SecureStore key -> AsyncStorage
+const OLD_SECURESTORE_KEY = "dw.browser.recents.v1";
+const RECENTS_KEY = "dw_browser_recents_v2"; // AsyncStorage key
 const MAX_RECENTS = 20;
 
 function normalizeToUrl(input: string) {
@@ -62,19 +64,50 @@ function faviconUrl(siteUrl: string) {
   }
 }
 
-async function readRecents(): Promise<RecentItem[]> {
-  const raw = await SecureStore.getItemAsync(RECENTS_KEY);
+function safeParseRecents(raw: string | null): RecentItem[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as RecentItem[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // sanitize + cap
+    return parsed
+      .filter((x) => x && typeof x.url === "string" && typeof x.lastVisited === "number")
+      .slice(0, MAX_RECENTS);
   } catch {
     return [];
   }
 }
 
+async function migrateRecentsIfNeeded() {
+  try {
+    const already = await AsyncStorage.getItem(RECENTS_KEY);
+    if (already) return;
+
+    const oldRaw = await SecureStore.getItemAsync(OLD_SECURESTORE_KEY);
+    const items = safeParseRecents(oldRaw);
+    if (items.length) {
+      await AsyncStorage.setItem(RECENTS_KEY, JSON.stringify(items.slice(0, MAX_RECENTS)));
+    }
+    // delete old key (best effort)
+    await SecureStore.deleteItemAsync(OLD_SECURESTORE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+async function readRecents(): Promise<RecentItem[]> {
+  const raw = await AsyncStorage.getItem(RECENTS_KEY);
+  return safeParseRecents(raw);
+}
+
 async function writeRecents(items: RecentItem[]) {
-  await SecureStore.setItemAsync(RECENTS_KEY, JSON.stringify(items.slice(0, MAX_RECENTS)));
+  // keep storage small + predictable
+  const compact = items.slice(0, MAX_RECENTS).map((x) => ({
+    url: x.url,
+    title: x.title?.slice(0, 80), // cap title size
+    lastVisited: x.lastVisited,
+  }));
+  await AsyncStorage.setItem(RECENTS_KEY, JSON.stringify(compact));
 }
 
 async function upsertRecent(url: string, title?: string) {
@@ -82,11 +115,7 @@ async function upsertRecent(url: string, title?: string) {
   const items = await readRecents();
   const now = Date.now();
 
-  const next: RecentItem[] = [
-    { url: clean, title, lastVisited: now },
-    ...items.filter((x) => x.url !== clean),
-  ];
-
+  const next: RecentItem[] = [{ url: clean, title, lastVisited: now }, ...items.filter((x) => x.url !== clean)];
   await writeRecents(next);
 }
 
@@ -122,6 +151,7 @@ export default function Browser() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      await migrateRecentsIfNeeded();
       const items = await readRecents();
       if (alive) setRecents(items);
     })();
@@ -135,7 +165,6 @@ export default function Browser() {
     try {
       await refreshRecents();
     } finally {
-      // lightning-fast feel
       setTimeout(() => setRefreshing(false), 120);
     }
   }, [refreshRecents]);
@@ -157,7 +186,7 @@ export default function Browser() {
   );
 
   const clearRecents = useCallback(async () => {
-    await SecureStore.deleteItemAsync(RECENTS_KEY);
+    await AsyncStorage.removeItem(RECENTS_KEY);
     setRecents([]);
   }, []);
 
@@ -208,13 +237,7 @@ export default function Browser() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onPullRefresh}
-            tintColor={theme.muted}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={theme.muted} />}
       >
         <View style={{ gap: 14 }}>
           <T variant="h2" weight="bold">
@@ -272,7 +295,7 @@ export default function Browser() {
             </Pressable>
           </View>
 
-          {/* Suggestions (while typing) */}
+          {/* Suggestions */}
           {query ? (
             <View
               style={{

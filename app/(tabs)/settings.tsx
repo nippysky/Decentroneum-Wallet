@@ -1,14 +1,16 @@
 // app/(tabs)/settings.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, Switch, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, Switch, View, ScrollView } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { BlurView } from "expo-blur";
+import * as Clipboard from "expo-clipboard";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Screen } from "@/src/ui/Screen";
 import { T } from "@/src/ui/T";
 import { Button } from "@/src/ui/Button";
+import { Toast } from "@/src/ui/Toast";
 import { useTheme, Mode } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
 import { unlockVaultV1 } from "@/src/lib/vault";
@@ -314,7 +316,7 @@ function PasscodeSheet({
             ) : null}
 
             <View style={{ height: 6 }} />
-            <Button title={busy ? "Enabling…" : confirmText} disabled={pin.length !== 6 || busy} onPress={submit} />
+            <Button title={busy ? "Please wait…" : confirmText} disabled={pin.length !== 6 || busy} onPress={submit} />
             <Button title="Cancel" variant="outline" onPress={close} />
           </Pressable>
         </Pressable>
@@ -342,7 +344,6 @@ async function isBiometricsAvailable(): Promise<boolean> {
 
 export default function Settings() {
   const router = useRouter();
-
   const { theme, mode, resolvedMode, setMode } = useTheme();
 
   const isUnlocked = useSession((s) => s.isUnlocked);
@@ -354,11 +355,13 @@ export default function Settings() {
   const biometricEnabled = useSession((s) => s.biometricEnabled);
   const setBiometricEnabled = useSession((s) => s.setBiometricEnabled);
 
-  // ✅ IMPORTANT: use session storage methods (same key used by Unlock)
   const setBioPin = useSession((s) => s.setBioPin);
   const clearBioPin = useSession((s) => s.clearBioPin);
 
   const resetDeviceWallet = useSession((s) => s.resetDeviceWallet);
+
+  // (optional) mnemonic may exist in session memory while unlocked
+  const sessionMnemonic = useSession((s) => (s as any).mnemonic) as string | null;
 
   const [eraseOpen, setEraseOpen] = useState(false);
 
@@ -366,9 +369,54 @@ export default function Settings() {
   const [bioLabel, setBioLabel] = useState<string>("Biometrics");
   const [bioHelpOpen, setBioHelpOpen] = useState(false);
 
+  // Recovery phrase flow
+  const [viewPhrasePending, setViewPhrasePending] = useState(false);
+  const [phraseOpen, setPhraseOpen] = useState(false);
+  const [phraseRevealed, setPhraseRevealed] = useState(false);
+  const [phrase, setPhrase] = useState<string>("");
+
+  // Toast
+  const [toastMsg, setToastMsg] = useState("");
+  const [toastVisible, setToastVisible] = useState(false);
+
+  const autoHideTimerRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setToastVisible(true);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastVisible(false), 1300) as unknown as number;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     getBiometricLabel().then(setBioLabel).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    // security: auto-hide & wipe phrase from memory after 30s whenever phrase sheet opens
+    if (!phraseOpen) return;
+
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    autoHideTimerRef.current = setTimeout(() => {
+      setPhraseOpen(false);
+      setPhraseRevealed(false);
+      setPhrase("");
+      showToast("Recovery phrase hidden");
+    }, 30_000) as unknown as number;
+
+    return () => {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+      autoHideTimerRef.current = null;
+    };
+  }, [phraseOpen]);
 
   const themeSubtitle = useMemo(() => {
     if (mode === "system") return `System (${resolvedMode === "dark" ? "Dark" : "Light"})`;
@@ -385,7 +433,6 @@ export default function Settings() {
       await setBiometricEnabled(false);
       return;
     }
-    // Require passcode once (so we can save it protected by biometrics)
     setBioPendingOn(true);
   };
 
@@ -395,115 +442,226 @@ export default function Settings() {
     await setBiometricEnabled(false);
   };
 
+  const closePhrase = () => {
+    setPhraseOpen(false);
+    setPhraseRevealed(false);
+    setPhrase("");
+  };
+
+  // ✅ If a modal is open, render the toast INSIDE it (native Modal is always above the app tree)
+  const toastInsidePhraseModal = phraseOpen;
+
   return (
     <Screen>
-      <View style={{ gap: 14 }}>
-        <T variant="h2" weight="bold">
-          Settings
-        </T>
+      <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={{ gap: 14 }}>
+          <T variant="h2" weight="bold">
+            Settings
+          </T>
 
-        {/* Security */}
-        <Card>
-          <SectionHeader title="Security" subtitle="Protect this wallet on this device." />
-          <Divider />
+          {/* Security */}
+          <Card>
+            <SectionHeader title="Security" subtitle="Protect this wallet on this device." />
+            <Divider />
 
-          <Row
-            icon="lock-closed-outline"
-            title="Auto-lock"
-            subtitle="Lock when you leave the app"
-            right={
-              <Switch
-                value={autoLockEnabled}
-                onValueChange={(v) => setAutoLockEnabled(v)}
-                trackColor={{ false: theme.border, true: theme.accent }}
-                thumbColor={theme.card}
-                ios_backgroundColor={theme.border}
-              />
-            }
-          />
+            <Row
+              icon="lock-closed-outline"
+              title="Auto-lock"
+              subtitle="Lock when you leave the app"
+              right={
+                <Switch
+                  value={autoLockEnabled}
+                  onValueChange={(v) => setAutoLockEnabled(v)}
+                  trackColor={{ false: theme.border, true: theme.accent }}
+                  thumbColor={theme.card}
+                  ios_backgroundColor={theme.border}
+                />
+              }
+            />
 
-          <Divider />
+            <Divider />
 
-          <Row
-            icon="finger-print-outline"
-            title="Biometric unlock"
-            subtitle={`Use ${bioLabel} if available`}
-            right={
-              <Switch
-                value={biometricEnabled || bioPendingOn}
-                onValueChange={async (v) => {
-                  if (v) await beginEnableBiometrics();
-                  else await disableBiometrics();
-                }}
-                trackColor={{ false: theme.border, true: theme.accent }}
-                thumbColor={theme.card}
-                ios_backgroundColor={theme.border}
-              />
-            }
-          />
+            <Row
+              icon="finger-print-outline"
+              title="Biometric unlock"
+              subtitle={`Use ${bioLabel} if available`}
+              right={
+                <Switch
+                  value={biometricEnabled || bioPendingOn}
+                  onValueChange={async (v) => {
+                    if (v) await beginEnableBiometrics();
+                    else await disableBiometrics();
+                  }}
+                  trackColor={{ false: theme.border, true: theme.accent }}
+                  thumbColor={theme.card}
+                  ios_backgroundColor={theme.border}
+                />
+              }
+            />
 
-          <Divider />
+            <Divider />
 
-          <Row
-            icon="shield-outline"
-            title="Lock now"
-            subtitle="Return to unlock screen"
-            onPress={() => {
-              lock();
-              router.replace("/unlock");
-            }}
-          />
-        </Card>
+            <Row icon="key-outline" title="View recovery phrase" subtitle="Requires passcode" onPress={() => setViewPhrasePending(true)} />
 
-        {/* Appearance */}
-        <Card>
-          <SectionHeader title="Appearance" subtitle="Choose your theme preference." />
-          <Divider />
+            <Divider />
 
-          <Row icon="color-palette-outline" title="Theme" subtitle={`Currently: ${themeSubtitle}`} />
+            <Row
+              icon="shield-outline"
+              title="Lock now"
+              subtitle="Return to unlock screen"
+              onPress={() => {
+                lock();
+                router.replace("/unlock");
+              }}
+            />
+          </Card>
 
-          <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 }}>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              {(["system", "light", "dark"] as Mode[]).map((m) => {
-                const active = mode === m;
-                const label = m === "system" ? "System" : m === "light" ? "Light" : "Dark";
+          {/* Appearance */}
+          <Card>
+            <SectionHeader title="Appearance" subtitle="Choose your theme preference." />
+            <Divider />
 
-                return (
-                  <Pressable
-                    key={m}
-                    onPress={() => setMode(m)}
-                    style={({ pressed }) => ({
-                      flex: 1,
-                      height: 44,
-                      borderRadius: 14,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: active ? theme.bg : theme.card,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      opacity: pressed ? 0.9 : 1,
-                    })}
-                  >
-                    <T weight={active ? "semibold" : "medium"}>{label}</T>
-                  </Pressable>
-                );
-              })}
+            <Row icon="color-palette-outline" title="Theme" subtitle={`Currently: ${themeSubtitle}`} />
+
+            <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 }}>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {(["system", "light", "dark"] as Mode[]).map((m) => {
+                  const active = mode === m;
+                  const label = m === "system" ? "System" : m === "light" ? "Light" : "Dark";
+
+                  return (
+                    <Pressable
+                      key={m}
+                      onPress={() => setMode(m)}
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        height: 44,
+                        borderRadius: 14,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: active ? theme.bg : theme.card,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        opacity: pressed ? 0.9 : 1,
+                      })}
+                    >
+                      <T weight={active ? "semibold" : "medium"}>{label}</T>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        </Card>
+          </Card>
 
-        {/* Device */}
-        <Card>
-          <SectionHeader title="Device" subtitle="This affects only this phone." />
-          <Divider />
-          <Row
-            icon="trash-outline"
-            title="Erase wallet from this device"
-            subtitle="Removes your encrypted vault and logs you out"
-            onPress={() => setEraseOpen(true)}
-          />
-        </Card>
-      </View>
+          {/* Device */}
+          <Card>
+            <SectionHeader title="Device" subtitle="This affects only this phone." />
+            <Divider />
+            <Row
+              icon="trash-outline"
+              title="Erase wallet from this device"
+              subtitle="Removes your encrypted vault and logs you out"
+              onPress={() => setEraseOpen(true)}
+            />
+          </Card>
+        </View>
+      </ScrollView>
+
+      {/* Passcode gate for “View recovery phrase” */}
+      <PasscodeSheet
+        visible={viewPhrasePending}
+        title="View recovery phrase"
+        subtitle="Enter your passcode to reveal your recovery phrase. Never share it with anyone."
+        confirmText="Continue"
+        onCancel={() => setViewPhrasePending(false)}
+        onConfirm={async (pin) => {
+          const maybeVault = (await unlockVaultV1(pin)) as any;
+
+          const mnemonic =
+            (sessionMnemonic && typeof sessionMnemonic === "string" ? sessionMnemonic : null) ??
+            (typeof maybeVault?.mnemonic === "string" ? maybeVault.mnemonic : null) ??
+            (typeof maybeVault?.wallet?.mnemonic === "string" ? maybeVault.wallet.mnemonic : null);
+
+          if (!mnemonic) throw new Error("Mnemonic unavailable");
+
+          setPhrase(mnemonic.trim());
+          setPhraseRevealed(false);
+          setPhraseOpen(true);
+          setViewPhrasePending(false);
+        }}
+      />
+
+      {/* Recovery phrase modal */}
+      <Modal visible={phraseOpen} transparent animationType="fade" onRequestClose={closePhrase}>
+        <View style={{ flex: 1 }}>
+          <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
+          <Pressable onPress={closePhrase} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+            <Pressable
+              onPress={() => {}}
+              style={{
+                backgroundColor: theme.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.border,
+                padding: 18,
+                gap: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+                  Recovery phrase
+                </T>
+                <Pressable onPress={closePhrase} style={{ padding: 8 }}>
+                  <Ionicons name="close" size={18} color={theme.text} />
+                </Pressable>
+              </View>
+
+              <T color={theme.muted}>
+                Anyone with this phrase can control your funds. Keep it offline. This screen auto-hides in 30 seconds.
+              </T>
+
+              <View
+                style={{
+                  padding: 14,
+                  borderRadius: 18,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  backgroundColor: theme.bg,
+                  minHeight: 84,
+                  justifyContent: "center",
+                }}
+              >
+                <T weight="semibold" style={{ lineHeight: 22 }}>
+                  {phraseRevealed ? phrase : "•••• •••• •••• •••• •••• •••• •••• •••• •••• •••• •••• ••••"}
+                </T>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <Button
+                  title={phraseRevealed ? "Hide" : "Reveal"}
+                  variant="outline"
+                  style={{ flex: 1 }}
+                  onPress={() => setPhraseRevealed((v) => !v)}
+                />
+                <Button
+                  title="Copy"
+                  style={{ flex: 1 }}
+                  disabled={!phraseRevealed}
+                  onPress={async () => {
+                    await Clipboard.setStringAsync(phrase);
+                    showToast("Recovery phrase copied");
+                  }}
+                />
+              </View>
+
+              <Button title="Done" variant="outline" onPress={closePhrase} />
+            </Pressable>
+          </Pressable>
+
+          {/* ✅ Toast inside Modal so it shows ABOVE the modal content */}
+          <Toast message={toastMsg} visible={toastVisible} bottomOffset={24} />
+        </View>
+      </Modal>
 
       {/* Enable biometrics requires passcode verification + saving BIO pin behind biometrics */}
       <PasscodeSheet
@@ -516,15 +674,9 @@ export default function Settings() {
           await setBiometricEnabled(false);
         }}
         onConfirm={async (pin) => {
-          // 1) verify passcode by decrypting vault locally
           await unlockVaultV1(pin);
-
-          // 2) ✅ store pin using the SAME key/path Unlock reads from (session store)
           await setBioPin(pin);
-
-          // 3) persist biometric preference
           await setBiometricEnabled(true);
-
           setBioPendingOn(false);
         }}
       />
@@ -533,9 +685,7 @@ export default function Settings() {
       <Sheet
         visible={bioHelpOpen}
         title="Biometrics not available"
-        message={
-          "Face ID / Touch ID isn’t set up on this device.\n\nOn iOS Simulator: Features → Face ID → Enrolled, then try again."
-        }
+        message={"Face ID / Touch ID isn’t set up on this device.\n\nOn iOS Simulator: Features → Face ID → Enrolled, then try again."}
         primaryText="OK"
         secondaryText="Cancel"
         onPrimary={() => setBioHelpOpen(false)}
@@ -556,6 +706,9 @@ export default function Settings() {
         }}
         onSecondary={() => setEraseOpen(false)}
       />
+
+      {/* ✅ Global toast only when phrase modal is NOT open (prevents duplicates) */}
+      {!toastInsidePhraseModal ? <Toast message={toastMsg} visible={toastVisible} /> : null}
     </Screen>
   );
 }

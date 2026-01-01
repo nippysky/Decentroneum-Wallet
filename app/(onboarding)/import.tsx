@@ -21,7 +21,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 function normalizePhrase(raw: string) {
   return raw
     .toLowerCase()
-    .replace(/[\n\r,]+/g, " ") // allow paste with newlines/commas, but treat as spaces
+    .replace(/[\n\r,]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -43,8 +43,14 @@ export default function ImportWallet() {
 
   const words = useMemo(() => countWords(phrase), [phrase]);
   const looksLikeMnemonic = words === 12 || words === 24;
-
   const canContinue = looksLikeMnemonic && !busy;
+
+  // ✅ Android: prevent title clipping with explicit lineHeight + font padding
+  const TITLE_SIZE = 34;
+  const TITLE_LINE_HEIGHT = Platform.OS === "android" ? 42 : 38;
+
+  const SUBTITLE_SIZE = 16;
+  const SUBTITLE_LINE_HEIGHT = Platform.OS === "android" ? 24 : 22;
 
   const onContinue = async () => {
     if (busy) return;
@@ -67,7 +73,6 @@ export default function ImportWallet() {
       setBusy(true);
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      // Validates mnemonic format (throws if invalid)
       ethers.HDNodeWallet.fromPhrase(cleaned);
 
       router.push({
@@ -113,10 +118,27 @@ export default function ImportWallet() {
 
           {/* Title */}
           <View style={{ gap: 6 }}>
-            <T variant="h2" weight="bold" style={{ fontSize: 34, letterSpacing: -0.6 }}>
+            <T
+              variant="h2"
+              weight="bold"
+              style={{
+                fontSize: TITLE_SIZE,
+                lineHeight: TITLE_LINE_HEIGHT,
+                letterSpacing: -0.6,
+                ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
+              }}
+            >
               Import wallet
             </T>
-            <T color={theme.muted} style={{ fontSize: 16, lineHeight: 22 }}>
+
+            <T
+              color={theme.muted}
+              style={{
+                fontSize: SUBTITLE_SIZE,
+                lineHeight: SUBTITLE_LINE_HEIGHT,
+                ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
+              }}
+            >
               Paste your recovery phrase. Separate words with{" "}
               <T weight="bold" style={{ color: theme.text }}>
                 spaces
@@ -155,7 +177,14 @@ export default function ImportWallet() {
 
             <View style={{ flex: 1, gap: 2 }}>
               <T weight="semibold">Keep it private</T>
-              <T variant="caption" color={theme.muted} style={{ lineHeight: 18 }}>
+              <T
+                variant="caption"
+                color={theme.muted}
+                style={{
+                  lineHeight: Platform.OS === "android" ? 19 : 18,
+                  ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
+                }}
+              >
                 Decent Wallet never uploads your phrase. Anyone with it can access your funds.
               </T>
             </View>
@@ -185,9 +214,10 @@ export default function ImportWallet() {
                 style={{
                   color: theme.text,
                   fontSize: 16,
-                  lineHeight: 22,
+                  lineHeight: Platform.OS === "android" ? 24 : 22,
                   minHeight: 120,
                   textAlignVertical: "top",
+                  ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
                 }}
                 multiline
                 autoCapitalize="none"
@@ -236,18 +266,17 @@ export default function ImportWallet() {
 
           {/* Bottom actions */}
           <View style={{ marginTop: "auto", gap: 12, paddingBottom: Math.max(insets.bottom, 14) }}>
-            <Button
-              title={busy ? "Checking…" : "Continue"}
-              disabled={!canContinue}
-              onPress={onContinue}
-            />
-
+            <Button title={busy ? "Checking…" : "Continue"} disabled={!canContinue} onPress={onContinue} />
             <Button title="Back" variant="outline" disabled={busy} onPress={() => router.back()} />
 
             <T
               variant="caption"
               color={theme.muted}
-              style={{ textAlign: "center", lineHeight: 18 }}
+              style={{
+                textAlign: "center",
+                lineHeight: Platform.OS === "android" ? 19 : 18,
+                ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
+              }}
             >
               Next: create a 6-digit passcode to encrypt your wallet on this device.
             </T>

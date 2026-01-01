@@ -21,16 +21,26 @@ export type TxResult = {
 
 const ERC20_ABI = [
   "function balanceOf(address) view returns (uint256)",
-  "function decimals() view returns (uint8)",
-  "function symbol() view returns (string)",
-  "function name() view returns (string)",
+  "function transfer(address to, uint256 amount) returns (bool)",
 ] as const;
 
+// ✅ Singleton provider (less flaky, more “wallet-grade”)
+let _provider: ethers.JsonRpcProvider | null = null;
+
+export function getProvider() {
+  if (_provider) return _provider;
+
+  _provider = new ethers.JsonRpcProvider(ELECTRONEUM.rpcUrl, {
+    chainId: ELECTRONEUM.chainId,
+    name: ELECTRONEUM.name,
+  });
+
+  return _provider;
+}
+
 export async function createWallet(): Promise<CreatedWallet> {
-  // 16 bytes entropy => 12-word mnemonic
   const entropy = await Crypto.getRandomBytesAsync(16);
   const mnemonic = ethers.Mnemonic.fromEntropy(entropy).phrase;
-
   const wallet = ethers.HDNodeWallet.fromPhrase(mnemonic);
   return { mnemonic, address: wallet.address };
 }
@@ -39,36 +49,55 @@ export function addressFromMnemonic(mnemonic: string): string {
   return ethers.HDNodeWallet.fromPhrase(mnemonic).address;
 }
 
-export function getProvider() {
-  // ethers v6 provider (supports provider.send(method, params))
-  return new ethers.JsonRpcProvider(ELECTRONEUM.rpcUrl, {
-    chainId: ELECTRONEUM.chainId,
-    name: ELECTRONEUM.name,
-  });
-}
-
 export function getSigner(mnemonic: string) {
-  const provider = getProvider();
-  return ethers.HDNodeWallet.fromPhrase(mnemonic).connect(provider);
+  return ethers.HDNodeWallet.fromPhrase(mnemonic).connect(getProvider());
 }
 
 /** Native ETN balance (as bigint, in wei) */
 export async function getNativeBalanceWei(address: string): Promise<bigint> {
+  return getProvider().getBalance(address);
+}
+
+/** Estimate gas + fees for any tx request */
+export async function estimateFees(opts: {
+  from: string;
+  tx: ethers.TransactionRequest;
+}) {
   const provider = getProvider();
-  return provider.getBalance(address);
+
+  const [feeData, gasLimit] = await Promise.all([
+    provider.getFeeData(),
+    provider.estimateGas({ ...opts.tx, from: opts.from }),
+  ]);
+
+  let feeWei = 0n;
+
+  // EIP-1559
+  if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+    feeWei = gasLimit * feeData.maxFeePerGas;
+    return {
+      gasLimit,
+      maxFeePerGas: feeData.maxFeePerGas,
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+      feeWei,
+      mode: "eip1559" as const,
+    };
+  }
+
+  // Legacy
+  if (feeData.gasPrice) {
+    feeWei = gasLimit * feeData.gasPrice;
+    return {
+      gasLimit,
+      gasPrice: feeData.gasPrice,
+      feeWei,
+      mode: "legacy" as const,
+    };
+  }
+
+  return { gasLimit, feeWei: 0n, mode: "unknown" as const };
 }
 
-/** Native ETN balance formatted */
-export async function getNativeBalance(address: string): Promise<string> {
-  const wei = await getNativeBalanceWei(address);
-  return ethers.formatEther(wei);
-}
-
-/**
- * Send native ETN
- * - amountEth: string like "0.5"
- * Returns tx hash.
- */
 export async function sendNativeETN(opts: {
   mnemonic: string;
   to: string;
@@ -77,6 +106,7 @@ export async function sendNativeETN(opts: {
   const { mnemonic, to, amountEth } = opts;
 
   if (!ethers.isAddress(to)) throw new Error("Invalid recipient address");
+
   const signer = getSigner(mnemonic);
 
   const tx: ethers.TransactionRequest = {
@@ -85,114 +115,57 @@ export async function sendNativeETN(opts: {
     chainId: ELECTRONEUM.chainId,
   };
 
-  const provider = getProvider();
-  const [feeData, gasLimit] = await Promise.all([
-    provider.getFeeData(),
-    provider.estimateGas({ ...tx, from: signer.address }),
-  ]);
+  const fee = await estimateFees({ from: signer.address, tx });
 
-  tx.gasLimit = gasLimit;
+  tx.gasLimit = fee.gasLimit;
 
-  if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-    tx.maxFeePerGas = feeData.maxFeePerGas;
-    tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-  } else if (feeData.gasPrice) {
-    tx.gasPrice = feeData.gasPrice;
+  if (fee.mode === "eip1559") {
+    tx.maxFeePerGas = fee.maxFeePerGas;
+    tx.maxPriorityFeePerGas = fee.maxPriorityFeePerGas;
+  } else if (fee.mode === "legacy") {
+    tx.gasPrice = fee.gasPrice;
   }
 
   const resp = await signer.sendTransaction(tx);
   return { hash: resp.hash };
 }
 
-/**
- * ERC-20 balance
- * - tokenAddress: ERC-20 contract
- * - decimals: if you already know it (from allowlist), pass it to skip a call
- */
-export async function getErc20Balance(opts: {
+export async function sendErc20(opts: {
+  mnemonic: string;
   tokenAddress: string;
-  owner: string;
-  decimals?: number;
-}): Promise<{ raw: bigint; formatted: string; decimals: number }> {
-  const { tokenAddress, owner } = opts;
+  to: string;
+  amount: string;
+  decimals: number;
+}): Promise<TxResult> {
+  const { mnemonic, tokenAddress, to, amount, decimals } = opts;
 
   if (!ethers.isAddress(tokenAddress)) throw new Error("Invalid token address");
-  if (!ethers.isAddress(owner)) throw new Error("Invalid owner address");
+  if (!ethers.isAddress(to)) throw new Error("Invalid recipient address");
 
-  const provider = getProvider();
-  const c = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+  const signer = getSigner(mnemonic);
+  const c = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
 
-  const decimals = typeof opts.decimals === "number" ? opts.decimals : Number(await c.decimals());
-  const raw: bigint = await c.balanceOf(owner);
-  const formatted = ethers.formatUnits(raw, decimals);
+  const amountRaw = ethers.parseUnits(amount, decimals);
+  const txReq = await c.transfer.populateTransaction(to, amountRaw);
 
-  return { raw, formatted, decimals };
-}
+  const tx: ethers.TransactionRequest = {
+    to: tokenAddress,
+    data: txReq.data,
+    value: 0n,
+    chainId: ELECTRONEUM.chainId,
+  };
 
-/**
- * Utility: format with 2dp + human readable separators.
- * Example: "12345.6789" -> "12,345.68"
- */
-export function formatAmount2dp(value: string): string {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "0.00";
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+  const fee = await estimateFees({ from: signer.address, tx });
 
-/**
- * Dapp tx params usually come in as strings (hex) per EIP-1193.
- * We normalize them into an ethers TransactionRequest.
- */
-export function normalizeDappTx(input: any): ethers.TransactionRequest {
-  const tx: ethers.TransactionRequest = {};
+  tx.gasLimit = fee.gasLimit;
 
-  if (input?.to && ethers.isAddress(input.to)) tx.to = input.to;
-  if (input?.from && ethers.isAddress(input.from)) tx.from = input.from;
-
-  // value can be hex string like "0x0" or decimal string; handle both
-  if (typeof input?.value === "string") {
-    try {
-      tx.value = input.value.startsWith("0x") ? BigInt(input.value) : ethers.parseEther(input.value);
-    } catch {}
+  if (fee.mode === "eip1559") {
+    tx.maxFeePerGas = fee.maxFeePerGas;
+    tx.maxPriorityFeePerGas = fee.maxPriorityFeePerGas;
+  } else if (fee.mode === "legacy") {
+    tx.gasPrice = fee.gasPrice;
   }
 
-  if (typeof input?.data === "string") tx.data = input.data;
-
-  // gas/gasLimit
-  const gl = input?.gas ?? input?.gasLimit;
-  if (typeof gl === "string" && gl.startsWith("0x")) {
-    try {
-      tx.gasLimit = BigInt(gl);
-    } catch {}
-  }
-
-  // fees
-  if (typeof input?.gasPrice === "string" && input.gasPrice.startsWith("0x")) {
-    try {
-      tx.gasPrice = BigInt(input.gasPrice);
-    } catch {}
-  }
-  if (typeof input?.maxFeePerGas === "string" && input.maxFeePerGas.startsWith("0x")) {
-    try {
-      tx.maxFeePerGas = BigInt(input.maxFeePerGas);
-    } catch {}
-  }
-  if (
-    typeof input?.maxPriorityFeePerGas === "string" &&
-    input.maxPriorityFeePerGas.startsWith("0x")
-  ) {
-    try {
-      tx.maxPriorityFeePerGas = BigInt(input.maxPriorityFeePerGas);
-    } catch {}
-  }
-
-  // nonce
-  if (typeof input?.nonce === "string" && input.nonce.startsWith("0x")) {
-    try {
-      tx.nonce = Number(BigInt(input.nonce));
-    } catch {}
-  }
-
-  tx.chainId = ELECTRONEUM.chainId;
-  return tx;
+  const resp = await signer.sendTransaction(tx);
+  return { hash: resp.hash };
 }

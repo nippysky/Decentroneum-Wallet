@@ -66,9 +66,6 @@ export function Toast({
         }}
       >
         <T weight="semibold">{message}</T>
-        <T variant="caption" color={theme.muted}>
-          Copied to clipboard
-        </T>
       </Animated.View>
     </View>
   );

@@ -1,4 +1,16 @@
 // app/browser/web.tsx
+//
+// Decent Wallet — In-app browser w/ injected provider (EIP-1193-ish).
+// Goal: “MetaMask-style” experience for dapps INSIDE our WebView, without WalletConnect.
+// Security model: per-domain permission gate (connect -> view address -> then allow signing/tx).
+//
+// NOTE:
+// - We intentionally keep this simple + stable.
+// - Later we can add an optional WalletConnect / “browser connect” mode as a separate path,
+//   and Decentroneum web can detect whichever provider exists.
+
+import "react-native-get-random-values"; // helps ethers on RN
+
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, View, Linking } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -49,21 +61,29 @@ type RecentItem = {
 const RECENTS_KEY = "dw:browser:recents:v1";
 const MAX_RECENTS = 20;
 
+/**
+ * Remove our cache-busting query param so the displayed URL stays clean.
+ */
 function stripDw(url: string) {
   try {
     const u = new URL(url);
     u.searchParams.delete("dw");
     return u.toString();
   } catch {
-    return url.replace(/([?&])dw=\d+(&?)/g, (m, p1, p2) => {
-      if (p1 === "?" && p2) return "?";
-      if (p1 === "?" && !p2) return "";
-      if (p1 === "&" && p2) return "&";
-      return "";
-    }).replace(/[?&]$/, "");
+    return url
+      .replace(/([?&])dw=\d+(&?)/g, (m, p1, p2) => {
+        if (p1 === "?" && p2) return "?";
+        if (p1 === "?" && !p2) return "";
+        if (p1 === "&" && p2) return "&";
+        return "";
+      })
+      .replace(/[?&]$/, "");
   }
 }
 
+/**
+ * Forces a reload even if the webview cache is sticky.
+ */
 function cacheBustUrl(url: string) {
   const base = stripDw(url);
   try {
@@ -96,10 +116,7 @@ async function upsertRecent(url: string, title?: string) {
   const items = await readRecents();
   const now = Date.now();
 
-  const next: RecentItem[] = [
-    { url: clean, title, lastVisited: now },
-    ...items.filter((x) => x.url !== clean),
-  ];
+  const next: RecentItem[] = [{ url: clean, title, lastVisited: now }, ...items.filter((x) => x.url !== clean)];
 
   await writeRecents(next);
 }
@@ -110,8 +127,12 @@ function shorten(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
+/**
+ * Important: many dapps expect a lowercase hex chainId string (0x...).
+ * Uppercase can break strict comparisons in some codebases.
+ */
 function chainIdHex() {
-  return "0x" + ELECTRONEUM.chainId.toString(16).toUpperCase();
+  return "0x" + ELECTRONEUM.chainId.toString(16);
 }
 
 function tryDecodeHexToUtf8(hex: string) {
@@ -140,6 +161,15 @@ function sanitizeEip712Types(types: any) {
   return copy;
 }
 
+/**
+ * Injects a minimal EIP-1193 compatible provider into the dapp page.
+ * We keep it intentionally small:
+ * - eth_requestAccounts gate triggers our native "Connect" sheet
+ * - eth_accounts + eth_chainId respond locally
+ * - everything else gets bridged to native using ETN_RPC_REQUEST
+ *
+ * We expose `ethereum.isDecentWallet` so Decentroneum web can detect us later.
+ */
 function injected() {
   return `
     (function () {
@@ -155,12 +185,20 @@ function injected() {
         });
       }
 
+      // Native will call this to resolve/reject pending requests.
       window.__DW_RESPOND = function (id, result, error) {
         const p = pending[id];
         if (!p) return;
         delete pending[id];
-        if (error) p.reject(new Error(error.message || error));
-        else p.resolve(result);
+
+        if (error) {
+          // Shape errors a bit like MetaMask (code + message) so dapps behave.
+          const e = new Error(error.message || error);
+          if (error && typeof error.code !== 'undefined') e.code = error.code;
+          p.reject(e);
+        } else {
+          p.resolve(result);
+        }
       };
 
       const listeners = {};
@@ -172,7 +210,11 @@ function injected() {
 
       const ethereum = {
         isDecentWallet: true,
+        // Keep false to avoid dapps assuming full MetaMask API surface.
         isMetaMask: false,
+
+        // Slight compatibility niceties:
+        providers: [],
 
         get chainId() { return '${chainIdHex()}'; },
         get selectedAddress() { return (window.__DW_ACCOUNTS && window.__DW_ACCOUNTS[0]) || null; },
@@ -195,15 +237,20 @@ function injected() {
           }
           if (method === 'eth_accounts') return window.__DW_ACCOUNTS || [];
           if (method === 'eth_chainId') return '${chainIdHex()}';
+          if (method === 'net_version') return String(${ELECTRONEUM.chainId});
 
           return rpc(method, params || []);
         }
       };
 
+      ethereum.providers = [ethereum];
+
       Object.defineProperty(window, 'ethereum', { value: ethereum, configurable: true });
 
+      // Ping native so we know injection is alive.
       send({ type: 'ETN_PING', origin: location.origin });
 
+      // Native uses this to push account updates into the dapp.
       window.__DW_NOTIFY_ACCOUNTS = function (accounts) {
         try {
           window.__DW_ACCOUNTS = accounts;
@@ -214,6 +261,7 @@ function injected() {
   `;
 }
 
+// RPC allowlists (read vs privileged)
 const PUBLIC_RPC_METHODS = new Set<string>([
   "web3_clientVersion",
   "eth_chainId",
@@ -229,18 +277,9 @@ const PUBLIC_RPC_METHODS = new Set<string>([
   "eth_getLogs",
 ]);
 
-const CONNECTED_READ_RPC_METHODS = new Set<string>([
-  "eth_getBalance",
-  "eth_getTransactionCount",
-  "eth_call",
-  "eth_estimateGas",
-]);
+const CONNECTED_READ_RPC_METHODS = new Set<string>(["eth_getBalance", "eth_getTransactionCount", "eth_call", "eth_estimateGas"]);
 
-const SIGN_METHODS = new Set<string>([
-  "personal_sign",
-  "eth_signTypedData",
-  "eth_signTypedData_v4",
-]);
+const SIGN_METHODS = new Set<string>(["personal_sign", "eth_signTypedData", "eth_signTypedData_v4"]);
 
 function isPublicRpc(method: string) {
   return PUBLIC_RPC_METHODS.has(method);
@@ -252,15 +291,7 @@ function isSignMethod(method: string) {
   return SIGN_METHODS.has(method);
 }
 
-function MenuSheet({
-  visible,
-  onClose,
-  items,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  items: MenuItem[];
-}) {
+function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () => void; items: MenuItem[] }) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -362,9 +393,7 @@ function ConnectSheet({
               Connect wallet?
             </T>
 
-            <T color={theme.muted}>
-              This site will be able to view your address. Only connect to sites you trust.
-            </T>
+            <T color={theme.muted}>This site will be able to view your address. Only connect to sites you trust.</T>
 
             <View
               style={{
@@ -707,9 +736,16 @@ export default function WebScreen() {
   const [sending, setSending] = useState(false);
   const [simulationStatus, setSimulationStatus] = useState<"unknown" | "ok" | "warn">("unknown");
 
+  /**
+   * Respond to a dapp RPC call (resolves/rejects the Promise in injected provider).
+   * We include `code` when possible because many dapps look for it.
+   */
   const respondRpc = useCallback((id: number, result: any, error?: any) => {
     const errPayload = error
-      ? { message: typeof error === "string" ? error : error?.message ?? "Request failed" }
+      ? {
+          message: typeof error === "string" ? error : error?.message ?? "Request failed",
+          code: typeof error?.code === "number" ? error.code : undefined,
+        }
       : null;
 
     webRef.current?.injectJavaScript(`
@@ -733,7 +769,7 @@ export default function WebScreen() {
       webRef.current?.injectJavaScript(`
         window.__DW_ACCOUNTS = ${JSON.stringify(accounts)};
         if (${approved ? "true" : "false"} && window.__DW_RESOLVE_ACCOUNTS) window.__DW_RESOLVE_ACCOUNTS(window.__DW_ACCOUNTS);
-        if (${approved ? "false" : "true"} && window.__DW_REJECT_ACCOUNTS) window.__DW_REJECT_ACCOUNTS(new Error('User rejected'));
+        if (${approved ? "false" : "true"} && window.__DW_REJECT_ACCOUNTS) window.__DW_REJECT_ACCOUNTS({ code: 4001, message: 'User rejected' });
         true;
       `);
 
@@ -777,16 +813,16 @@ export default function WebScreen() {
 
   const beginTxApproval = useCallback(
     async (rpc: RpcReq) => {
-      if (!address || !mnemonic) return respondRpc(rpc.id, null, "Wallet locked");
+      if (!address || !mnemonic) return respondRpc(rpc.id, null, { code: 4900, message: "Wallet locked" });
 
       const first = rpc.params?.[0];
-      if (!first) return respondRpc(rpc.id, null, "Invalid transaction params");
+      if (!first) return respondRpc(rpc.id, null, { code: -32602, message: "Invalid transaction params" });
 
       const normalized = normalizeDappTx(first);
       normalized.from = address;
 
       if (!normalized.to || !ethers.isAddress(normalized.to)) {
-        return respondRpc(rpc.id, null, "Missing or invalid 'to' address");
+        return respondRpc(rpc.id, null, { code: -32602, message: "Missing or invalid 'to' address" });
       }
 
       const hasData = typeof normalized.data === "string" && normalized.data !== "0x";
@@ -824,8 +860,7 @@ export default function WebScreen() {
         const totWei: bigint = valWei + feeWei;
 
         const feePretty = Number(fee).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
-        const totalPretty =
-          Number(ethers.formatEther(totWei)).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
+        const totalPretty = Number(ethers.formatEther(totWei)).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
 
         setFeeEth(feePretty);
         setTotalEth(totalPretty);
@@ -844,7 +879,7 @@ export default function WebScreen() {
 
   const beginSignApproval = useCallback(
     async (rpc: RpcReq) => {
-      if (!address || !mnemonic) return respondRpc(rpc.id, null, "Wallet locked");
+      if (!address || !mnemonic) return respondRpc(rpc.id, null, { code: 4900, message: "Wallet locked" });
 
       const params = Array.isArray(rpc.params) ? rpc.params : [];
       const connected = await isDomainConnected(domain);
@@ -862,19 +897,20 @@ export default function WebScreen() {
         let msg: any = p0;
         let addrParam: any = p1;
 
+        // Some dapps swap order
         if (typeof p0 === "string" && ethers.isAddress(p0) && typeof p1 === "string") {
           msg = p1;
           addrParam = p0;
         }
 
         if (!addrParam || typeof addrParam !== "string" || !ethers.isAddress(addrParam)) {
-          return respondRpc(rpc.id, null, "Invalid address param");
+          return respondRpc(rpc.id, null, { code: -32602, message: "Invalid address param" });
         }
         if (addrParam.toLowerCase() !== address.toLowerCase()) {
-          return respondRpc(rpc.id, null, "Unauthorized address");
+          return respondRpc(rpc.id, null, { code: 4100, message: "Unauthorized address" });
         }
         if (typeof msg !== "string") {
-          return respondRpc(rpc.id, null, "Invalid message param");
+          return respondRpc(rpc.id, null, { code: -32602, message: "Invalid message param" });
         }
 
         const decoded = tryDecodeHexToUtf8(msg);
@@ -884,8 +920,7 @@ export default function WebScreen() {
           rpc,
           kind: "message",
           preview,
-          warning:
-            "Signing can authorize actions off-chain. Only sign if you trust this site and understand what you’re approving.",
+          warning: "Signing can authorize actions off-chain. Only sign if you trust this site and understand what you’re approving.",
           messageToSign: msg.startsWith("0x") ? ethers.getBytes(msg) : msg,
         });
         return;
@@ -896,21 +931,17 @@ export default function WebScreen() {
         const typedDataRaw = params[1];
 
         if (!addrParam || typeof addrParam !== "string" || !ethers.isAddress(addrParam)) {
-          return respondRpc(rpc.id, null, "Invalid address param");
+          return respondRpc(rpc.id, null, { code: -32602, message: "Invalid address param" });
         }
         if (addrParam.toLowerCase() !== address.toLowerCase()) {
-          return respondRpc(rpc.id, null, "Unauthorized address");
+          return respondRpc(rpc.id, null, { code: 4100, message: "Unauthorized address" });
         }
 
         const td =
-          typeof typedDataRaw === "string"
-            ? safeJsonParse(typedDataRaw)
-            : typeof typedDataRaw === "object"
-              ? typedDataRaw
-              : null;
+          typeof typedDataRaw === "string" ? safeJsonParse(typedDataRaw) : typeof typedDataRaw === "object" ? typedDataRaw : null;
 
         if (!td || typeof td !== "object") {
-          return respondRpc(rpc.id, null, "Invalid typed data");
+          return respondRpc(rpc.id, null, { code: -32602, message: "Invalid typed data" });
         }
 
         const domainObj = td.domain ?? {};
@@ -925,14 +956,13 @@ export default function WebScreen() {
           rpc,
           kind: "typedData",
           preview,
-          warning:
-            "Typed-data signatures can be used to approve token spending (permits) or other powerful permissions. Only sign if you trust this site.",
+          warning: "Typed-data signatures can approve token spending (permits) or other powerful permissions. Only sign if you trust this site.",
           typedData: { domain: domainObj, types: typesObj, message: messageObj, primaryType },
         });
         return;
       }
 
-      respondRpc(rpc.id, null, `Unsupported sign method: ${rpc.method}`);
+      respondRpc(rpc.id, null, { code: 4200, message: `Unsupported sign method: ${rpc.method}` });
     },
     [address, domain, mnemonic, respondRpc]
   );
@@ -962,13 +992,13 @@ export default function WebScreen() {
           const result = await provider.send(rpc.method, rpc.params ?? []);
           respondRpc(rpc.id, result);
         } catch (e: any) {
-          respondRpc(rpc.id, null, e?.message ?? "RPC failed");
+          respondRpc(rpc.id, null, { code: -32000, message: e?.message ?? "RPC failed" });
         }
         return;
       }
 
       if (isConnectedReadRpc(rpc.method)) {
-        if (!connected || !address) return respondRpc(rpc.id, null, "Not connected");
+        if (!connected || !address) return respondRpc(rpc.id, null, { code: 4100, message: "Not connected" });
 
         try {
           const provider = getProvider();
@@ -976,36 +1006,36 @@ export default function WebScreen() {
 
           if (rpc.method === "eth_getBalance") {
             const target = p?.[0];
-            if (!target || typeof target !== "string") return respondRpc(rpc.id, null, "Invalid params");
-            if (target.toLowerCase() !== address.toLowerCase()) return respondRpc(rpc.id, null, "Unauthorized address");
+            if (!target || typeof target !== "string") return respondRpc(rpc.id, null, { code: -32602, message: "Invalid params" });
+            if (target.toLowerCase() !== address.toLowerCase()) return respondRpc(rpc.id, null, { code: 4100, message: "Unauthorized address" });
             const result = await provider.send("eth_getBalance", p);
             return respondRpc(rpc.id, result);
           }
 
           if (rpc.method === "eth_getTransactionCount") {
             const target = p?.[0];
-            if (!target || typeof target !== "string") return respondRpc(rpc.id, null, "Invalid params");
-            if (target.toLowerCase() !== address.toLowerCase()) return respondRpc(rpc.id, null, "Unauthorized address");
+            if (!target || typeof target !== "string") return respondRpc(rpc.id, null, { code: -32602, message: "Invalid params" });
+            if (target.toLowerCase() !== address.toLowerCase()) return respondRpc(rpc.id, null, { code: 4100, message: "Unauthorized address" });
             const result = await provider.send("eth_getTransactionCount", p);
             return respondRpc(rpc.id, result);
           }
 
           if (rpc.method === "eth_call" || rpc.method === "eth_estimateGas") {
             const callObj = p?.[0];
-            if (!callObj || typeof callObj !== "object") return respondRpc(rpc.id, null, "Invalid params");
+            if (!callObj || typeof callObj !== "object") return respondRpc(rpc.id, null, { code: -32602, message: "Invalid params" });
             p[0] = { ...callObj, from: address };
             const result = await provider.send(rpc.method, p);
             return respondRpc(rpc.id, result);
           }
 
-          respondRpc(rpc.id, null, `Unsupported method: ${rpc.method}`);
+          respondRpc(rpc.id, null, { code: 4200, message: `Unsupported method: ${rpc.method}` });
         } catch (e: any) {
-          respondRpc(rpc.id, null, e?.message ?? "RPC failed");
+          respondRpc(rpc.id, null, { code: -32000, message: e?.message ?? "RPC failed" });
         }
         return;
       }
 
-      respondRpc(rpc.id, null, `Unsupported method: ${rpc.method}`);
+      respondRpc(rpc.id, null, { code: 4200, message: `Unsupported method: ${rpc.method}` });
     },
     [address, beginSignApproval, beginTxApproval, domain, respondRpc]
   );
@@ -1021,7 +1051,7 @@ export default function WebScreen() {
       respondRpc(pendingTx.rpc.id, resp.hash);
       setPendingTx(null);
     } catch (e: any) {
-      respondRpc(pendingTx.rpc.id, null, e?.message ?? "Transaction failed");
+      respondRpc(pendingTx.rpc.id, null, { code: -32000, message: e?.message ?? "Transaction failed" });
       setPendingTx(null);
     } finally {
       setSending(false);
@@ -1030,7 +1060,7 @@ export default function WebScreen() {
 
   const denyTx = useCallback(() => {
     if (!pendingTx) return;
-    respondRpc(pendingTx.rpc.id, null, "User rejected");
+    respondRpc(pendingTx.rpc.id, null, { code: 4001, message: "User rejected" });
     setPendingTx(null);
   }, [pendingTx, respondRpc]);
 
@@ -1057,10 +1087,10 @@ export default function WebScreen() {
         return;
       }
 
-      respondRpc(pendingSign.rpc.id, null, "Unsupported sign request");
+      respondRpc(pendingSign.rpc.id, null, { code: 4200, message: "Unsupported sign request" });
       setPendingSign(null);
     } catch (e: any) {
-      respondRpc(pendingSign.rpc.id, null, e?.message ?? "Signing failed");
+      respondRpc(pendingSign.rpc.id, null, { code: -32000, message: e?.message ?? "Signing failed" });
       setPendingSign(null);
     } finally {
       setSigning(false);
@@ -1069,7 +1099,7 @@ export default function WebScreen() {
 
   const denySign = useCallback(() => {
     if (!pendingSign) return;
-    respondRpc(pendingSign.rpc.id, null, "User rejected");
+    respondRpc(pendingSign.rpc.id, null, { code: 4001, message: "User rejected" });
     setPendingSign(null);
   }, [pendingSign, respondRpc]);
 
@@ -1268,7 +1298,7 @@ export default function WebScreen() {
           if (origin) await respondAccounts(origin, false);
 
           if (queuedRpc) {
-            respondRpc(queuedRpc.id, null, "User rejected");
+            respondRpc(queuedRpc.id, null, { code: 4001, message: "User rejected" });
             setQueuedRpc(null);
           }
         }}
