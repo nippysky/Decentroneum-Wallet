@@ -12,10 +12,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { ethers } from "ethers";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Clipboard from "expo-clipboard";
 
-import { Screen } from "@/src/ui/Screen";
-import { Button } from "@/src/ui/Button";
-import { T } from "@/src/ui/T";
+import { Screen } from "@/src/components/Screen";
+import { Button } from "@/src/components/Button";
+import { T } from "@/src/components/T";
+import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import { useTheme } from "@/src/theme/ThemeProvider";
 
 function normalizePhrase(raw: string) {
@@ -114,6 +116,9 @@ export default function ImportWallet() {
             >
               <Ionicons name="chevron-back" size={20} color={theme.text} />
             </Pressable>
+            <View style={{ flex: 1 }}>
+              <OnboardingProgress step={0} total={2} />
+            </View>
           </View>
 
           {/* Title */}
@@ -192,7 +197,25 @@ export default function ImportWallet() {
 
           {/* Input */}
           <View style={{ gap: 10 }}>
-            <T weight="semibold">Recovery phrase</T>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <T weight="semibold">Recovery phrase</T>
+              <Pressable
+                onPress={async () => {
+                  const s = await Clipboard.getStringAsync();
+                  if (s.trim()) {
+                    setPhrase(s.trim());
+                    setError(null);
+                  }
+                }}
+                disabled={busy}
+                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, padding: 6, opacity: pressed ? 0.8 : 1 })}
+              >
+                <Ionicons name="clipboard-outline" size={14} color={theme.muted} />
+                <T variant="caption" weight="semibold" color={theme.muted}>
+                  Paste
+                </T>
+              </Pressable>
+            </View>
 
             <View
               style={{
@@ -258,7 +281,7 @@ export default function ImportWallet() {
             </View>
 
             {error ? (
-              <T color={(theme as any).danger ?? "#EF4444"} style={{ marginTop: 2 }}>
+              <T color={theme.danger} style={{ marginTop: 2 }}>
                 {error}
               </T>
             ) : null}

@@ -2,13 +2,14 @@
 import React, { useMemo, useState } from "react";
 import { View, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Screen } from "@/src/ui/Screen";
-import { Button } from "@/src/ui/Button";
-import { T } from "@/src/ui/T";
+import { Screen } from "@/src/components/Screen";
+import { Button } from "@/src/components/Button";
+import { T } from "@/src/components/T";
+import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { saveVaultV1, setHasWallet } from "@/src/lib/vault";
+import { initializeVault } from "@/src/lib/crypto/vault";
 import { useSession } from "@/src/state/session";
-import { addressFromMnemonic } from "@/src/lib/derive";
+import { useAccounts } from "@/src/state/accounts";
 
 function is6Digits(s: string) {
   return /^\d{6}$/.test(s);
@@ -18,8 +19,6 @@ export default function Passcode() {
   const router = useRouter();
   const { theme } = useTheme();
   const { mnemonic } = useLocalSearchParams<{ mnemonic: string }>();
-
-  const setUnlocked = useSession((s) => s.setUnlocked);
 
   const [step, setStep] = useState<1 | 2>(1);
   const [pin, setPin] = useState("");
@@ -66,11 +65,11 @@ export default function Passcode() {
 
     setBusy(true);
     try {
-      await saveVaultV1(mnemonic, pin);
-      await setHasWallet();
+      const { key, accounts, activeAccountId } = await initializeVault(pin, { mnemonic, label: "Account 1" });
 
       // Mark in-memory session unlocked so we don't immediately ask for passcode again
-      setUnlocked(mnemonic, addressFromMnemonic(mnemonic));
+      useAccounts.getState().setAccounts(accounts, activeAccountId);
+      useSession.setState({ isUnlocked: true, vaultKey: key });
 
       router.replace("/(tabs)/wallet");
     } finally {
@@ -92,6 +91,8 @@ export default function Passcode() {
   return (
     <Screen>
       <View style={{ gap: 14, flex: 1 }}>
+        <OnboardingProgress step={2} total={3} />
+
         <T variant="h2" weight="bold">
           {step === 1 ? "Create passcode" : "Confirm passcode"}
         </T>
@@ -163,7 +164,7 @@ export default function Passcode() {
 
         {/* Error */}
         {step === 2 && confirm.length === 6 && confirm !== pin ? (
-          <T color={(theme as any).danger ?? "#EF4444"}>Passcodes don’t match.</T>
+          <T color={theme.danger}>Passcodes don’t match.</T>
         ) : null}
 
         {/* Actions */}

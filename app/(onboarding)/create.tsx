@@ -1,16 +1,21 @@
-import { createWallet } from "@/src/lib/wallet";
+import { createWallet } from "@/src/lib/chain/wallet";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { Button } from "@/src/ui/Button";
-import { Screen } from "@/src/ui/Screen";
-import { T } from "@/src/ui/T";
+import { Button } from "@/src/components/Button";
+import { Screen } from "@/src/components/Screen";
+import { T } from "@/src/components/T";
+import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 export default function Create() {
   const router = useRouter();
   const { theme } = useTheme();
   const [mnemonic, setMnemonic] = useState<string>("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -27,38 +32,46 @@ export default function Create() {
 
   return (
     <Screen>
-      <View style={{ gap: 14 }}>
-        <T variant="h2" weight="bold">Your recovery phrase</T>
-        <T color={theme.muted}>
-          Write these 12 words down and keep them somewhere safe. Anyone with this phrase can control your wallet.
-        </T>
+      <View style={{ gap: SPACING.lg }}>
+        <OnboardingProgress step={0} total={3} />
 
-        {/* Anti-screenshot “vibe” notice (we’ll add actual secure-screen hardening later) */}
+        <View style={{ gap: 6 }}>
+          <T variant="h2" weight="bold">Your recovery phrase</T>
+          <T color={theme.muted}>
+            Write these 12 words down and keep them somewhere safe. Anyone with this phrase can control your wallet.
+          </T>
+        </View>
+
+        {/* Anti-screenshot notice */}
         <View
           style={{
-            marginTop: 6,
-            padding: 12,
-            borderRadius: 16,
+            flexDirection: "row",
+            gap: SPACING.md,
+            padding: SPACING.md,
+            borderRadius: RADIUS.lg,
             borderWidth: 1,
-            borderColor: theme.border,
+            borderColor: theme.warning,
             backgroundColor: theme.card,
           }}
         >
-          <T weight="semibold">Do not screenshot</T>
-          <T color={theme.muted} style={{ marginTop: 6 }}>
-            Screenshots can be backed up to the cloud. Use paper or a password manager.
-          </T>
+          <Ionicons name="eye-off-outline" size={18} color={theme.warning} style={{ marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <T weight="semibold">Do not screenshot</T>
+            <T variant="caption" color={theme.muted} style={{ marginTop: 4 }}>
+              Screenshots can be backed up to the cloud. Use paper or a password manager instead.
+            </T>
+          </View>
         </View>
 
         {/* Phrase card */}
         <View
           style={{
-            marginTop: 8,
-            padding: 14,
-            borderRadius: 18,
+            padding: SPACING.lg,
+            borderRadius: RADIUS.xl,
             borderWidth: 1,
             borderColor: theme.border,
             backgroundColor: theme.card,
+            gap: SPACING.md,
           }}
         >
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -71,7 +84,7 @@ export default function Create() {
                   style={{
                     paddingHorizontal: 10,
                     paddingVertical: 8,
-                    borderRadius: 14,
+                    borderRadius: RADIUS.md,
                     borderWidth: 1,
                     borderColor: theme.border,
                     backgroundColor: theme.bg,
@@ -88,9 +101,35 @@ export default function Create() {
               ))
             )}
           </View>
+
+          {words.length === 12 ? (
+            <Pressable
+              onPress={async () => {
+                await Clipboard.setStringAsync(mnemonic);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                paddingVertical: 10,
+                borderRadius: RADIUS.md,
+                borderWidth: 1,
+                borderColor: theme.border,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Ionicons name={copied ? "checkmark" : "copy-outline"} size={15} color={theme.muted} />
+              <T variant="caption" weight="semibold" color={theme.muted}>
+                {copied ? "Copied" : "Copy to clipboard"}
+              </T>
+            </Pressable>
+          ) : null}
         </View>
 
-        <View style={{ marginTop: 12, gap: 12 }}>
+        <View style={{ marginTop: 4, gap: 12 }}>
           <Button
             title="I wrote it down"
             disabled={words.length !== 12}

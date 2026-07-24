@@ -1,26 +1,30 @@
 // src/state/session.ts
+//
+// Auth/security session state only. Account data (addresses, active account,
+// switching) lives in state/accounts.ts. The only secret held here is the
+// in-memory vault key produced by unlocking — never the raw mnemonic, and
+// never persisted.
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
-import { clearVault } from "@/src/lib/vault";
-import { STORAGE_KEYS } from "@/src/lib/storageKeys";
+import { clearVault, unlockVault, hasWallet as vaultHasWallet } from "@/src/lib/crypto/vault";
+import { STORAGE_KEYS } from "@/src/lib/storage/keys";
+import { useAccounts } from "@/src/state/accounts";
 
 export type SessionState = {
   isUnlocked: boolean;
-  mnemonic: string | null; // in-memory only
-  address: string | null;
+  vaultKey: Uint8Array | null; // in-memory only, derived from passcode via scrypt
 
   autoLockEnabled: boolean;
   biometricEnabled: boolean;
 
   hydrate: () => Promise<void>;
 
-  setUnlocked: (mnemonic: string, address: string) => void;
+  unlock: (passcode: string) => Promise<void>;
   lock: () => void;
 
   setAutoLockEnabled: (v: boolean) => Promise<void>;
   setBiometricEnabled: (v: boolean) => Promise<void>;
 
-  // Used by biometric unlock flow
   setBioPin: (pin: string) => Promise<void>;
   clearBioPin: () => Promise<void>;
   getBioPin: () => Promise<string | null>;
@@ -30,8 +34,7 @@ export type SessionState = {
 
 export const useSession = create<SessionState>((set, get) => ({
   isUnlocked: false,
-  mnemonic: null,
-  address: null,
+  vaultKey: null,
 
   autoLockEnabled: true,
   biometricEnabled: false,
@@ -48,18 +51,18 @@ export const useSession = create<SessionState>((set, get) => ({
         biometricEnabled: b ? b === "1" : false,
       });
     } catch {
-      // keep defaults
-      set({
-        autoLockEnabled: true,
-        biometricEnabled: false,
-      });
+      set({ autoLockEnabled: true, biometricEnabled: false });
     }
   },
 
-  setUnlocked: (mnemonic, address) => set({ isUnlocked: true, mnemonic, address }),
+  unlock: async (passcode: string) => {
+    const { key, accounts, activeAccountId } = await unlockVault(passcode);
+    useAccounts.getState().setAccounts(accounts, activeAccountId);
+    set({ isUnlocked: true, vaultKey: key });
+  },
 
-  // Lock wipes mnemonic (secret). Keeping address is fine.
-  lock: () => set({ isUnlocked: false, mnemonic: null }),
+  // Lock wipes the derived key (secret). Account metadata (addresses/labels) is fine to keep.
+  lock: () => set({ isUnlocked: false, vaultKey: null }),
 
   setAutoLockEnabled: async (v) => {
     set({ autoLockEnabled: v });
@@ -76,15 +79,12 @@ export const useSession = create<SessionState>((set, get) => ({
         keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
       });
     } else {
-      // Turning off: remove flag + stored biometric pin
       await SecureStore.deleteItemAsync(STORAGE_KEYS.BIOMETRIC_ENABLED);
       await get().clearBioPin();
     }
   },
 
   setBioPin: async (pin) => {
-    // Store passcode behind OS biometrics (Face ID / Touch ID).
-    // Reading it later will trigger a biometric prompt.
     await SecureStore.setItemAsync(STORAGE_KEYS.BIO_PIN, pin, {
       keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
       requireAuthentication: true,
@@ -97,12 +97,9 @@ export const useSession = create<SessionState>((set, get) => ({
 
   getBioPin: async () => {
     try {
-      const v = await SecureStore.getItemAsync(STORAGE_KEYS.BIO_PIN, {
-        requireAuthentication: true,
-      });
+      const v = await SecureStore.getItemAsync(STORAGE_KEYS.BIO_PIN, { requireAuthentication: true });
       return v ?? null;
     } catch {
-      // user cancelled Face ID / Touch ID, or not enrolled, etc.
       return null;
     }
   },
@@ -118,12 +115,17 @@ export const useSession = create<SessionState>((set, get) => ({
       SecureStore.deleteItemAsync(STORAGE_KEYS.BIOMETRIC_ENABLED),
     ]);
 
+    useAccounts.getState().reset();
+
     set({
       isUnlocked: false,
-      mnemonic: null,
-      address: null,
+      vaultKey: null,
       biometricEnabled: false,
       autoLockEnabled: true,
     });
   },
 }));
+
+export async function deviceHasWallet(): Promise<boolean> {
+  return vaultHasWallet();
+}

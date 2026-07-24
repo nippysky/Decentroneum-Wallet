@@ -7,15 +7,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { Screen } from "@/src/ui/Screen";
-import { T } from "@/src/ui/T";
+import { Screen } from "@/src/components/Screen";
+import { T } from "@/src/components/T";
 import { useSession } from "@/src/state/session";
 
 const FEATURED = [
+  { name: "Decentroneum D-App", url: "https://app.decentroneum.com" },
   { name: "Decentroneum", url: "https://decentroneum.com" },
-  { name: "Panthart", url: "https://panth.art" },
   { name: "ElectroSwap", url: "https://electroswap.io" },
-  { name: "Block Explorer", url: "https://blockexplorer.electroneum.com" },
+  { name: "Electroneum Explorer", url: "https://blockexplorer.electroneum.com" },
 ];
 
 type RecentItem = {
@@ -321,7 +321,7 @@ export default function Browser() {
                     borderTopColor: theme.border,
                   })}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                     <View
                       style={{
                         width: 38,
@@ -342,7 +342,7 @@ export default function Browser() {
                       )}
                     </View>
 
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <T weight="semibold" numberOfLines={1}>
                         {s.name}
                       </T>
@@ -415,7 +415,7 @@ export default function Browser() {
                         )}
                       </View>
 
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
                         <T weight="semibold" numberOfLines={1}>
                           {r.title || new URL(r.url).host}
                         </T>
@@ -477,7 +477,7 @@ export default function Browser() {
                     borderTopColor: theme.border,
                   })}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                     <View
                       style={{
                         width: 38,
@@ -498,7 +498,7 @@ export default function Browser() {
                       )}
                     </View>
 
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <T weight="semibold">{d.name}</T>
                       <T variant="caption" color={theme.muted} numberOfLines={1}>
                         {d.url.replace(/^https?:\/\//, "")}

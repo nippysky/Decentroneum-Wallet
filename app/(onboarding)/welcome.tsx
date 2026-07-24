@@ -10,18 +10,18 @@ import {
   NativeSyntheticEvent,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Image } from "expo-image";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { Screen } from "@/src/ui/Screen";
-import { Button } from "@/src/ui/Button";
-import { T } from "@/src/ui/T";
+import { Screen } from "@/src/components/Screen";
+import { Button } from "@/src/components/Button";
+import { T } from "@/src/components/T";
+import { ONBOARDING_ILLUSTRATIONS } from "@/src/components/illustrations/OnboardingIllustrations";
 
 type Slide = {
-  key: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  key: keyof typeof ONBOARDING_ILLUSTRATIONS;
   kicker: string;
   title: string;
   body: string;
@@ -36,24 +36,33 @@ export default function Welcome() {
     () => [
       {
         key: "security",
-        icon: "shield-checkmark-outline",
         kicker: "Security-first",
         title: "Your keys stay on\nyour phone.",
         body: "Decent Wallet is non-custodial. No accounts, no custody, no “reset password” that can leak your wallet.",
       },
       {
         key: "electroneum",
-        icon: "flash-outline",
         kicker: "Electroneum-only",
         title: "Built for the\nElectroneum ecosystem.",
         body: "One network. Less confusion. Cleaner UX. You can hold ETN and ERC-20 tokens on Electroneum Smart Chain.",
       },
       {
+        key: "accounts",
+        kicker: "Multiple accounts",
+        title: "Manage more than\none wallet.",
+        body: "Create or import multiple accounts and switch between them instantly — all inside one app.",
+      },
+      {
         key: "browser",
-        icon: "compass-outline",
-        kicker: "Built-in browser",
-        title: "Explore dApps\nand connect safely.",
-        body: "Approve connections per-site. You stay in control of what a dApp can see and do.",
+        kicker: "Built-in browser & explorer",
+        title: "Explore dApps,\ntrack every transaction.",
+        body: "Approve dApp connections per-site, and follow your on-chain activity with a real block explorer built in.",
+      },
+      {
+        key: "notifications",
+        kicker: "Stay in the loop",
+        title: "Know the moment\nfunds arrive.",
+        body: "Turn on notifications and Decent Wallet will let you know as soon as you receive ETN or tokens.",
       },
     ],
     []
@@ -110,14 +119,12 @@ export default function Welcome() {
               width: 42,
               height: 42,
               borderRadius: 14,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: theme.card,
+              overflow: "hidden",
               borderWidth: 1,
               borderColor: theme.border,
             }}
           >
-            <Ionicons name="wallet-outline" size={20} color={theme.text} />
+            <Image source={require("@/assets/images/icon.png")} style={{ width: 42, height: 42 }} contentFit="cover" />
           </View>
 
           <View style={{ flex: 1 }}>
@@ -158,34 +165,21 @@ export default function Welcome() {
           showsHorizontalScrollIndicator={false}
           bounces={false}
           onMomentumScrollEnd={onMomentumEnd}
-          renderItem={({ item }) => (
+          extraData={index}
+          renderItem={({ item, index: i }) => {
+            const Illustration = ONBOARDING_ILLUSTRATIONS[item.key];
+            return (
             <View
               style={{
                 width,
                 paddingHorizontal: 20,
-                paddingTop: 24,
+                paddingTop: 12,
                 paddingBottom: 160, // space for bottom actions
               }}
             >
-              <View style={{ gap: 16, flex: 1 }}>
-                <View
-                  style={{
-                    width: 66,
-                    height: 66,
-                    borderRadius: 22,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: theme.card,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    shadowColor: "#000",
-                    shadowOpacity: theme.bg === "#060807" ? 0.25 : 0.08,
-                    shadowRadius: 18,
-                    shadowOffset: { width: 0, height: 10 },
-                    elevation: 6,
-                  }}
-                >
-                  <Ionicons name={item.icon} size={28} color={theme.text} />
+              <View style={{ gap: 12, flex: 1 }}>
+                <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 4 }}>
+                  <Illustration theme={theme} active={i === index} size={128} />
                 </View>
 
                 <View style={{ gap: 10 }}>
@@ -201,9 +195,9 @@ export default function Welcome() {
                   <T
                     weight="bold"
                     style={{
-                      fontSize: 36,
-                      lineHeight: 50,
-                      letterSpacing: -1.2,
+                      fontSize: 32,
+                      lineHeight: 40,
+                      letterSpacing: -1,
                     }}
                   >
                     {item.title}
@@ -222,7 +216,8 @@ export default function Welcome() {
                 </View>
               </View>
             </View>
-          )}
+            );
+          }}
         />
       </View>
 

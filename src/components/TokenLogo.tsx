@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { T } from "@/src/ui/T";
+import { T } from "@/src/components/T";
 
 export function TokenLogo({
   symbol,

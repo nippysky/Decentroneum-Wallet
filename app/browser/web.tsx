@@ -4,10 +4,10 @@
 // Goal: “MetaMask-style” experience for dapps INSIDE our WebView, without WalletConnect.
 // Security model: per-domain permission gate (connect -> view address -> then allow signing/tx).
 //
-// NOTE:
-// - We intentionally keep this simple + stable.
-// - Later we can add an optional WalletConnect / “browser connect” mode as a separate path,
-//   and Decentroneum web can detect whichever provider exists.
+// Key fix:
+// - Inject provider BEFORE page scripts run using injectedJavaScriptBeforeContentLoaded
+// - Bridge must work even when window.ReactNativeWebView isn’t ready yet (iOS timing)
+// - Use AsyncStorage recents to match app/(tabs)/browser.tsx
 
 import "react-native-get-random-values"; // helps ethers on RN
 
@@ -18,31 +18,33 @@ import { WebView } from "react-native-webview";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ethers } from "ethers";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { T } from "@/src/ui/T";
-import { Button } from "@/src/ui/Button";
-import { IconButton } from "@/src/ui/IconButton";
-import { HoldToConfirm } from "@/src/ui/HoldToConfirm";
+import { T } from "@/src/components/T";
+import { Button } from "@/src/components/Button";
+import { IconButton } from "@/src/components/IconButton";
+import { HoldToConfirm } from "@/src/components/HoldToConfirm";
 
 import { useSession } from "@/src/state/session";
+import { useAccounts } from "@/src/state/accounts";
+import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
 import { getDomain } from "@/src/lib/url";
-import { isDomainConnected, setDomainConnected, disconnectDomain } from "@/src/lib/permissions";
-import { ELECTRONEUM } from "@/src/lib/networks";
-import { getProvider, getSigner, normalizeDappTx } from "@/src/lib/wallet";
+import { isDomainConnected, setDomainConnected, disconnectDomain } from "@/src/lib/storage/dappPermissions";
+import { ELECTRONEUM } from "@/src/lib/chain/networks";
+import { estimateFees, getSigner, normalizeDappTx, sendRaw } from "@/src/lib/chain/wallet";
 
 type RpcReq = {
   id: number;
   origin: string;
   method: string;
-  params?: any[];
+  params?: unknown[];
 };
 
 type WVMessage =
   | { type: "ETN_CONNECT_REQUEST"; origin: string }
-  | { type: "ETN_RPC_REQUEST"; id: number; origin: string; method: string; params?: any[] }
+  | { type: "ETN_RPC_REQUEST"; id: number; origin: string; method: string; params?: unknown[] }
   | { type: "ETN_PING"; origin: string };
 
 type MenuItem = {
@@ -58,7 +60,7 @@ type RecentItem = {
   lastVisited: number;
 };
 
-const RECENTS_KEY = "dw:browser:recents:v1";
+const RECENTS_KEY = "dw_browser_recents_v2";
 const MAX_RECENTS = 20;
 
 /**
@@ -71,7 +73,7 @@ function stripDw(url: string) {
     return u.toString();
   } catch {
     return url
-      .replace(/([?&])dw=\d+(&?)/g, (m, p1, p2) => {
+      .replace(/([?&])dw=\d+(&?)/g, (_m, p1, p2) => {
         if (p1 === "?" && p2) return "?";
         if (p1 === "?" && !p2) return "";
         if (p1 === "&" && p2) return "&";
@@ -96,19 +98,31 @@ function cacheBustUrl(url: string) {
   }
 }
 
-async function readRecents(): Promise<RecentItem[]> {
-  const raw = await SecureStore.getItemAsync(RECENTS_KEY);
+function safeParseRecents(raw: string | null): RecentItem[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as RecentItem[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x) => x && typeof x.url === "string" && typeof x.lastVisited === "number")
+      .slice(0, MAX_RECENTS);
   } catch {
     return [];
   }
 }
 
+async function readRecents(): Promise<RecentItem[]> {
+  const raw = await AsyncStorage.getItem(RECENTS_KEY);
+  return safeParseRecents(raw);
+}
+
 async function writeRecents(items: RecentItem[]) {
-  await SecureStore.setItemAsync(RECENTS_KEY, JSON.stringify(items.slice(0, MAX_RECENTS)));
+  const compact = items.slice(0, MAX_RECENTS).map((x) => ({
+    url: x.url,
+    title: x.title?.slice(0, 80),
+    lastVisited: x.lastVisited,
+  }));
+  await AsyncStorage.setItem(RECENTS_KEY, JSON.stringify(compact));
 }
 
 async function upsertRecent(url: string, title?: string) {
@@ -117,7 +131,6 @@ async function upsertRecent(url: string, title?: string) {
   const now = Date.now();
 
   const next: RecentItem[] = [{ url: clean, title, lastVisited: now }, ...items.filter((x) => x.url !== clean)];
-
   await writeRecents(next);
 }
 
@@ -129,7 +142,6 @@ function shorten(addr: string) {
 
 /**
  * Important: many dapps expect a lowercase hex chainId string (0x...).
- * Uppercase can break strict comparisons in some codebases.
  */
 function chainIdHex() {
   return "0x" + ELECTRONEUM.chainId.toString(16);
@@ -154,109 +166,155 @@ function safeJsonParse(s: string) {
   }
 }
 
-function sanitizeEip712Types(types: any) {
+function sanitizeEip712Types(types: unknown) {
   if (!types || typeof types !== "object") return {};
-  const copy: any = { ...types };
-  delete copy.EIP712Domain;
+  const copy: Record<string, unknown> = { ...(types as any) };
+  delete (copy as any).EIP712Domain;
   return copy;
 }
 
 /**
- * Injects a minimal EIP-1193 compatible provider into the dapp page.
- * We keep it intentionally small:
- * - eth_requestAccounts gate triggers our native "Connect" sheet
- * - eth_accounts + eth_chainId respond locally
- * - everything else gets bridged to native using ETN_RPC_REQUEST
+ * Injects a minimal EIP-1193 provider EARLY.
  *
- * We expose `ethereum.isDecentWallet` so Decentroneum web can detect us later.
+ * Critical detail:
+ * - Some iOS builds don’t have window.ReactNativeWebView ready at "beforeContentLoaded".
+ * - But window.webkit.messageHandlers.ReactNativeWebView usually exists.
+ * So we support both + queue until bridge is ready.
  */
 function injected() {
   return `
     (function () {
-      const send = (payload) => window.ReactNativeWebView.postMessage(JSON.stringify(payload));
-      const pending = {};
-      let rid = 0;
+      if (window.ethereum && window.ethereum.isDecentWallet) { return true; }
 
-      function rpc(method, params) {
-        const id = ++rid;
-        send({ type: 'ETN_RPC_REQUEST', id, origin: location.origin, method, params: params || [] });
-        return new Promise((resolve, reject) => {
-          pending[id] = { resolve, reject };
+      var pending = {};
+      var rid = 0;
+
+      function getBridge() {
+        // RN WebView standard
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          return function (msg) { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); };
+        }
+        // iOS WKWebView underlying bridge (used by RN WebView)
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.ReactNativeWebView) {
+          return function (msg) { window.webkit.messageHandlers.ReactNativeWebView.postMessage(JSON.stringify(msg)); };
+        }
+        return null;
+      }
+
+      var queue = [];
+      function send(payload) {
+        var bridge = getBridge();
+        if (!bridge) {
+          queue.push(payload);
+          return;
+        }
+        bridge(payload);
+      }
+
+      // Try to flush queued messages once bridge appears.
+      function flushQueue() {
+        var bridge = getBridge();
+        if (!bridge) return;
+        if (!queue.length) return;
+        var q = queue.slice();
+        queue = [];
+        q.forEach(function (p) {
+          try { bridge(p); } catch (_) {}
         });
       }
 
-      // Native will call this to resolve/reject pending requests.
+      // Poll briefly; bridge usually appears quickly.
+      var flushTimer = setInterval(function () {
+        flushQueue();
+        if (getBridge()) {
+          clearInterval(flushTimer);
+        }
+      }, 50);
+
+      function rpc(method, params) {
+        var id = ++rid;
+        send({ type: "ETN_RPC_REQUEST", id: id, origin: location.origin, method: method, params: params || [] });
+        return new Promise(function (resolve, reject) {
+          pending[id] = { resolve: resolve, reject: reject };
+        });
+      }
+
       window.__DW_RESPOND = function (id, result, error) {
-        const p = pending[id];
+        var p = pending[id];
         if (!p) return;
         delete pending[id];
 
         if (error) {
-          // Shape errors a bit like MetaMask (code + message) so dapps behave.
-          const e = new Error(error.message || error);
-          if (error && typeof error.code !== 'undefined') e.code = error.code;
+          var e = new Error(error.message || error);
+          if (error && typeof error.code !== "undefined") e.code = error.code;
           p.reject(e);
         } else {
           p.resolve(result);
         }
       };
 
-      const listeners = {};
+      var listeners = {};
       function emit(event, payload) {
-        (listeners[event] || []).forEach((fn) => {
+        (listeners[event] || []).forEach(function (fn) {
           try { fn(payload); } catch (_) {}
         });
       }
 
-      const ethereum = {
+      var ethereum = {
         isDecentWallet: true,
-        // Keep false to avoid dapps assuming full MetaMask API surface.
         isMetaMask: false,
 
-        // Slight compatibility niceties:
+        // Compatibility niceties
         providers: [],
 
-        get chainId() { return '${chainIdHex()}'; },
+        get chainId() { return "${chainIdHex()}"; },
         get selectedAddress() { return (window.__DW_ACCOUNTS && window.__DW_ACCOUNTS[0]) || null; },
 
-        on: (event, fn) => {
+        on: function (event, fn) {
           listeners[event] = listeners[event] || [];
           listeners[event].push(fn);
         },
-        removeListener: (event, fn) => {
-          listeners[event] = (listeners[event] || []).filter((x) => x !== fn);
+        removeListener: function (event, fn) {
+          listeners[event] = (listeners[event] || []).filter(function (x) { return x !== fn; });
         },
 
-        request: async ({ method, params }) => {
-          if (method === 'eth_requestAccounts') {
-            send({ type: 'ETN_CONNECT_REQUEST', origin: location.origin });
-            return await new Promise((resolve, reject) => {
+        request: function (_args) {
+          var method = _args && _args.method;
+          var params = (_args && _args.params) || [];
+
+          if (method === "eth_requestAccounts") {
+            send({ type: "ETN_CONNECT_REQUEST", origin: location.origin });
+            return new Promise(function (resolve, reject) {
               window.__DW_RESOLVE_ACCOUNTS = resolve;
               window.__DW_REJECT_ACCOUNTS = reject;
             });
           }
-          if (method === 'eth_accounts') return window.__DW_ACCOUNTS || [];
-          if (method === 'eth_chainId') return '${chainIdHex()}';
-          if (method === 'net_version') return String(${ELECTRONEUM.chainId});
 
-          return rpc(method, params || []);
+          if (method === "eth_accounts") return Promise.resolve(window.__DW_ACCOUNTS || []);
+          if (method === "eth_chainId") return Promise.resolve("${chainIdHex()}");
+          if (method === "net_version") return Promise.resolve(String(${ELECTRONEUM.chainId}));
+
+          return rpc(method, params);
         }
       };
 
       ethereum.providers = [ethereum];
 
-      Object.defineProperty(window, 'ethereum', { value: ethereum, configurable: true });
+      Object.defineProperty(window, "ethereum", { value: ethereum, configurable: true });
 
-      // Ping native so we know injection is alive.
-      send({ type: 'ETN_PING', origin: location.origin });
+      // Signal injection
+      try { window.dispatchEvent(new Event("ethereum#initialized")); } catch (_) {}
 
-      // Native uses this to push account updates into the dapp.
+      send({ type: "ETN_PING", origin: location.origin });
+
       window.__DW_NOTIFY_ACCOUNTS = function (accounts) {
         try {
           window.__DW_ACCOUNTS = accounts;
-          emit('accountsChanged', accounts);
+          emit("accountsChanged", accounts);
         } catch (_) {}
       };
+
+      return true;
     })();
   `;
 }
@@ -277,9 +335,18 @@ const PUBLIC_RPC_METHODS = new Set<string>([
   "eth_getLogs",
 ]);
 
-const CONNECTED_READ_RPC_METHODS = new Set<string>(["eth_getBalance", "eth_getTransactionCount", "eth_call", "eth_estimateGas"]);
+const CONNECTED_READ_RPC_METHODS = new Set<string>([
+  "eth_getBalance",
+  "eth_getTransactionCount",
+  "eth_call",
+  "eth_estimateGas",
+]);
 
-const SIGN_METHODS = new Set<string>(["personal_sign", "eth_signTypedData", "eth_signTypedData_v4"]);
+const SIGN_METHODS = new Set<string>([
+  "personal_sign",
+  "eth_signTypedData",
+  "eth_signTypedData_v4",
+]);
 
 function isPublicRpc(method: string) {
   return PUBLIC_RPC_METHODS.has(method);
@@ -337,7 +404,7 @@ function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () 
                   borderTopColor: theme.border,
                 })}
               >
-                <T weight="semibold" color={it.destructive ? "#EF4444" : theme.text}>
+                <T weight="semibold" color={it.destructive ? theme.danger : theme.text}>
                   {it.label}
                 </T>
                 {it.hint ? (
@@ -393,7 +460,9 @@ function ConnectSheet({
               Connect wallet?
             </T>
 
-            <T color={theme.muted}>This site will be able to view your address. Only connect to sites you trust.</T>
+            <T color={theme.muted}>
+              This site will be able to view your address. Only connect to sites you trust.
+            </T>
 
             <View
               style={{
@@ -687,8 +756,12 @@ export default function WebScreen() {
   const params = useLocalSearchParams<{ url?: string }>();
 
   const isUnlocked = useSession((s) => s.isUnlocked);
-  const address = useSession((s) => s.address);
-  const mnemonic = useSession((s) => s.mnemonic);
+  const vaultKey = useSession((s) => s.vaultKey);
+  const activeAccount = useAccounts((s) => s.activeAccount());
+  const accounts = useAccounts((s) => s.accounts);
+  const address = activeAccount?.address ?? null;
+  const accountId = activeAccount?.id ?? null;
+  const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
 
   const initialUrl = params.url ?? "https://decentroneum.com";
 
@@ -738,9 +811,8 @@ export default function WebScreen() {
 
   /**
    * Respond to a dapp RPC call (resolves/rejects the Promise in injected provider).
-   * We include `code` when possible because many dapps look for it.
    */
-  const respondRpc = useCallback((id: number, result: any, error?: any) => {
+  const respondRpc = useCallback((id: number, result: unknown, error?: any) => {
     const errPayload = error
       ? {
           message: typeof error === "string" ? error : error?.message ?? "Request failed",
@@ -784,8 +856,31 @@ export default function WebScreen() {
     pushAccountsToPage([]);
   }, [domain, pushAccountsToPage]);
 
+  /**
+   * Switch which of the user's accounts this browser (and any connected
+   * site) uses — without leaving the page or reloading it. If the current
+   * site is already connected, the dapp gets a live EIP-1193
+   * "accountsChanged" event, exactly like switching accounts in MetaMask or
+   * Trust Wallet mid-session.
+   */
+  const switchAccountLive = useCallback(
+    async (id: string) => {
+      await useAccounts.getState().switchAccount(id);
+      setAccountSwitcherOpen(false);
+
+      const next = useAccounts.getState().activeAccount();
+      if (!next) return;
+
+      const connected = await isDomainConnected(domain);
+      if (connected) {
+        webRef.current?.injectJavaScript(`window.__DW_ACCOUNTS = ${JSON.stringify([next.address])}; true;`);
+        pushAccountsToPage([next.address]);
+      }
+    },
+    [domain, pushAccountsToPage]
+  );
+
   const hardRefresh = useCallback(() => {
-    // true hard refresh: stop -> remount -> cache-bust
     try {
       webRef.current?.stopLoading();
     } catch {}
@@ -798,22 +893,18 @@ export default function WebScreen() {
   const openInSafari = useCallback(async () => {
     try {
       await Linking.openURL(currentUrl);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [currentUrl]);
 
   const copyUrl = useCallback(async () => {
     try {
       await Clipboard.setStringAsync(currentUrl);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [currentUrl]);
 
   const beginTxApproval = useCallback(
     async (rpc: RpcReq) => {
-      if (!address || !mnemonic) return respondRpc(rpc.id, null, { code: 4900, message: "Wallet locked" });
+      if (!address || !vaultKey) return respondRpc(rpc.id, null, { code: 4900, message: "Wallet locked" });
 
       const first = rpc.params?.[0];
       if (!first) return respondRpc(rpc.id, null, { code: -32602, message: "Invalid transaction params" });
@@ -821,50 +912,51 @@ export default function WebScreen() {
       const normalized = normalizeDappTx(first);
       normalized.from = address;
 
-      if (!normalized.to || !ethers.isAddress(normalized.to)) {
+      if (!normalized.to || !ethers.isAddress(String(normalized.to))) {
         return respondRpc(rpc.id, null, { code: -32602, message: "Missing or invalid 'to' address" });
       }
 
       const hasData = typeof normalized.data === "string" && normalized.data !== "0x";
       setSimulationStatus(hasData ? "warn" : "ok");
 
-      const v = normalized.value ? ethers.formatEther(normalized.value) : "0";
+      const v = normalized.value ? ethers.formatEther(normalized.value as any) : "0";
       const vPretty = Number(v).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
 
       setValueEth(vPretty);
       setFeeEth("0.00");
       setTotalEth("0.00");
 
-      setPendingTx({ rpc, to: normalized.to, tx: normalized });
+      setPendingTx({ rpc, to: String(normalized.to), tx: normalized });
       setEstimating(true);
 
       try {
-        const provider = getProvider();
-        const feeData = await provider.getFeeData();
-        const gasLimit = await provider.estimateGas({ ...normalized, from: address });
+        // Routed through the same estimateFees() the native SendSheet and the
+        // WalletConnect tx-approval sheet use — one shared implementation, so
+        // the +10% gasLimit safety buffer (see wallet.ts) and any future fee
+        // logic changes apply everywhere a transaction gets broadcast, not
+        // just here. This used to be its own hand-rolled copy of the same
+        // math with no buffer; that duplication is gone.
+        const fee = await estimateFees({ from: address, tx: normalized });
 
-        const txForFee: ethers.TransactionRequest = { ...normalized, gasLimit };
-
-        let feeWei = 0n;
-        if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-          txForFee.maxFeePerGas = feeData.maxFeePerGas;
-          txForFee.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-          feeWei = gasLimit * feeData.maxFeePerGas;
-        } else if (feeData.gasPrice) {
-          txForFee.gasPrice = feeData.gasPrice;
-          feeWei = gasLimit * feeData.gasPrice;
+        const txForFee: ethers.TransactionRequest = { ...normalized, gasLimit: fee.gasLimit };
+        if (fee.mode === "eip1559") {
+          txForFee.maxFeePerGas = fee.maxFeePerGas;
+          txForFee.maxPriorityFeePerGas = fee.maxPriorityFeePerGas;
+        } else if (fee.mode === "legacy") {
+          txForFee.gasPrice = fee.gasPrice;
         }
 
-        const fee = ethers.formatEther(feeWei);
-        const valWei: bigint = normalized.value != null ? ethers.toBigInt(normalized.value) : 0n;
+        const feeWei = fee.feeWei;
+        const feeEthStr = ethers.formatEther(feeWei);
+        const valWei: bigint = normalized.value != null ? ethers.toBigInt(normalized.value as any) : 0n;
         const totWei: bigint = valWei + feeWei;
 
-        const feePretty = Number(fee).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
+        const feePretty = Number(feeEthStr).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
         const totalPretty = Number(ethers.formatEther(totWei)).toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
 
         setFeeEth(feePretty);
         setTotalEth(totalPretty);
-        setPendingTx({ rpc, to: normalized.to, tx: txForFee });
+        setPendingTx({ rpc, to: String(normalized.to), tx: txForFee });
         setSimulationStatus(hasData ? "warn" : "ok");
       } catch {
         setFeeEth("—");
@@ -874,12 +966,12 @@ export default function WebScreen() {
         setEstimating(false);
       }
     },
-    [address, mnemonic, respondRpc]
+    [address, vaultKey, respondRpc]
   );
 
   const beginSignApproval = useCallback(
     async (rpc: RpcReq) => {
-      if (!address || !mnemonic) return respondRpc(rpc.id, null, { code: 4900, message: "Wallet locked" });
+      if (!address || !vaultKey) return respondRpc(rpc.id, null, { code: 4900, message: "Wallet locked" });
 
       const params = Array.isArray(rpc.params) ? rpc.params : [];
       const connected = await isDomainConnected(domain);
@@ -891,8 +983,8 @@ export default function WebScreen() {
       }
 
       if (rpc.method === "personal_sign") {
-        const p0 = params[0];
-        const p1 = params[1];
+        const p0 = params[0] as any;
+        const p1 = params[1] as any;
 
         let msg: any = p0;
         let addrParam: any = p1;
@@ -920,15 +1012,16 @@ export default function WebScreen() {
           rpc,
           kind: "message",
           preview,
-          warning: "Signing can authorize actions off-chain. Only sign if you trust this site and understand what you’re approving.",
+          warning:
+            "Signing can authorize actions off-chain. Only sign if you trust this site and understand what you’re approving.",
           messageToSign: msg.startsWith("0x") ? ethers.getBytes(msg) : msg,
         });
         return;
       }
 
       if (rpc.method === "eth_signTypedData_v4") {
-        const addrParam = params[0];
-        const typedDataRaw = params[1];
+        const addrParam = params[0] as any;
+        const typedDataRaw = params[1] as any;
 
         if (!addrParam || typeof addrParam !== "string" || !ethers.isAddress(addrParam)) {
           return respondRpc(rpc.id, null, { code: -32602, message: "Invalid address param" });
@@ -938,16 +1031,20 @@ export default function WebScreen() {
         }
 
         const td =
-          typeof typedDataRaw === "string" ? safeJsonParse(typedDataRaw) : typeof typedDataRaw === "object" ? typedDataRaw : null;
+          typeof typedDataRaw === "string"
+            ? safeJsonParse(typedDataRaw)
+            : typeof typedDataRaw === "object"
+              ? typedDataRaw
+              : null;
 
         if (!td || typeof td !== "object") {
           return respondRpc(rpc.id, null, { code: -32602, message: "Invalid typed data" });
         }
 
-        const domainObj = td.domain ?? {};
-        const typesObj = sanitizeEip712Types(td.types ?? {});
-        const messageObj = td.message ?? {};
-        const primaryType = td.primaryType;
+        const domainObj = (td as any).domain ?? {};
+        const typesObj = sanitizeEip712Types((td as any).types ?? {});
+        const messageObj = (td as any).message ?? {};
+        const primaryType = (td as any).primaryType;
 
         const domainName = domainObj?.name ? String(domainObj.name) : "Typed data";
         const preview = `${domainName}${primaryType ? ` • ${primaryType}` : ""}`;
@@ -956,7 +1053,8 @@ export default function WebScreen() {
           rpc,
           kind: "typedData",
           preview,
-          warning: "Typed-data signatures can approve token spending (permits) or other powerful permissions. Only sign if you trust this site.",
+          warning:
+            "Typed-data signatures can approve token spending (permits) or other powerful permissions. Only sign if you trust this site.",
           typedData: { domain: domainObj, types: typesObj, message: messageObj, primaryType },
         });
         return;
@@ -964,7 +1062,7 @@ export default function WebScreen() {
 
       respondRpc(rpc.id, null, { code: 4200, message: `Unsupported sign method: ${rpc.method}` });
     },
-    [address, domain, mnemonic, respondRpc]
+    [address, domain, vaultKey, respondRpc]
   );
 
   const handleRpc = useCallback(
@@ -988,8 +1086,7 @@ export default function WebScreen() {
 
       if (isPublicRpc(rpc.method)) {
         try {
-          const provider = getProvider();
-          const result = await provider.send(rpc.method, rpc.params ?? []);
+          const result = await sendRaw(rpc.method, rpc.params ?? []);
           respondRpc(rpc.id, result);
         } catch (e: any) {
           respondRpc(rpc.id, null, { code: -32000, message: e?.message ?? "RPC failed" });
@@ -997,18 +1094,25 @@ export default function WebScreen() {
         return;
       }
 
+      // allow website to ask native wallet to disconnect this domain
+if (rpc.method === "dw_disconnect") {
+  await doDisconnect();
+  respondRpc(rpc.id, true);
+  return;
+}
+
+
       if (isConnectedReadRpc(rpc.method)) {
         if (!connected || !address) return respondRpc(rpc.id, null, { code: 4100, message: "Not connected" });
 
         try {
-          const provider = getProvider();
           const p = Array.isArray(rpc.params) ? [...rpc.params] : [];
 
           if (rpc.method === "eth_getBalance") {
             const target = p?.[0];
             if (!target || typeof target !== "string") return respondRpc(rpc.id, null, { code: -32602, message: "Invalid params" });
             if (target.toLowerCase() !== address.toLowerCase()) return respondRpc(rpc.id, null, { code: 4100, message: "Unauthorized address" });
-            const result = await provider.send("eth_getBalance", p);
+            const result = await sendRaw("eth_getBalance", p);
             return respondRpc(rpc.id, result);
           }
 
@@ -1016,15 +1120,15 @@ export default function WebScreen() {
             const target = p?.[0];
             if (!target || typeof target !== "string") return respondRpc(rpc.id, null, { code: -32602, message: "Invalid params" });
             if (target.toLowerCase() !== address.toLowerCase()) return respondRpc(rpc.id, null, { code: 4100, message: "Unauthorized address" });
-            const result = await provider.send("eth_getTransactionCount", p);
+            const result = await sendRaw("eth_getTransactionCount", p);
             return respondRpc(rpc.id, result);
           }
 
           if (rpc.method === "eth_call" || rpc.method === "eth_estimateGas") {
             const callObj = p?.[0];
             if (!callObj || typeof callObj !== "object") return respondRpc(rpc.id, null, { code: -32602, message: "Invalid params" });
-            p[0] = { ...callObj, from: address };
-            const result = await provider.send(rpc.method, p);
+            (p as any)[0] = { ...(callObj as any), from: address };
+            const result = await sendRaw(rpc.method, p);
             return respondRpc(rpc.id, result);
           }
 
@@ -1037,14 +1141,15 @@ export default function WebScreen() {
 
       respondRpc(rpc.id, null, { code: 4200, message: `Unsupported method: ${rpc.method}` });
     },
-    [address, beginSignApproval, beginTxApproval, domain, respondRpc]
+    [address, beginSignApproval, beginTxApproval, doDisconnect, domain, respondRpc]
   );
 
   const approveTx = useCallback(async () => {
-    if (!pendingTx || !mnemonic || !address) return;
+    if (!pendingTx || !vaultKey || !accountId || !address) return;
 
     setSending(true);
     try {
+      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
       const signer = getSigner(mnemonic);
       const txToSend: ethers.TransactionRequest = { ...pendingTx.tx, from: address, chainId: ELECTRONEUM.chainId };
       const resp = await signer.sendTransaction(txToSend);
@@ -1056,7 +1161,7 @@ export default function WebScreen() {
     } finally {
       setSending(false);
     }
-  }, [address, mnemonic, pendingTx, respondRpc]);
+  }, [address, vaultKey, accountId, pendingTx, respondRpc]);
 
   const denyTx = useCallback(() => {
     if (!pendingTx) return;
@@ -1065,10 +1170,11 @@ export default function WebScreen() {
   }, [pendingTx, respondRpc]);
 
   const approveSign = useCallback(async () => {
-    if (!pendingSign || !mnemonic || !address) return;
+    if (!pendingSign || !vaultKey || !accountId || !address) return;
 
     setSigning(true);
     try {
+      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
       const signer = getSigner(mnemonic);
 
       if (pendingSign.kind === "message") {
@@ -1095,7 +1201,7 @@ export default function WebScreen() {
     } finally {
       setSigning(false);
     }
-  }, [address, mnemonic, pendingSign, respondRpc]);
+  }, [address, vaultKey, accountId, pendingSign, respondRpc]);
 
   const denySign = useCallback(() => {
     if (!pendingSign) return;
@@ -1117,6 +1223,15 @@ export default function WebScreen() {
       : "0x";
 
   const menuItems: MenuItem[] = [
+    ...(accounts.length > 1
+      ? [
+          {
+            label: `Switch account (${shorten(address ?? "")})`,
+            hint: "Choose which of your accounts this browser uses.",
+            onPress: () => setAccountSwitcherOpen(true),
+          } as MenuItem,
+        ]
+      : []),
     { label: "Disconnect site", hint: "Revokes this site’s wallet access.", destructive: true, onPress: doDisconnect },
     { label: "Hard refresh", hint: "Full reload (fixes iOS refresh errors).", onPress: hardRefresh },
     { label: "Open in Safari", hint: "Use the system browser.", onPress: openInSafari },
@@ -1140,9 +1255,9 @@ export default function WebScreen() {
           gap: 12,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
           <IconButton icon="close" variant="ghost" onPress={() => router.back()} accessibilityLabel="Close" />
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <T weight="bold" numberOfLines={1}>
               {domain}
             </T>
@@ -1153,7 +1268,13 @@ export default function WebScreen() {
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <IconButton icon="arrow-back" variant="ghost" disabled={!canGoBack} onPress={() => webRef.current?.goBack()} accessibilityLabel="Back" />
+          <IconButton
+            icon="arrow-back"
+            variant="ghost"
+            disabled={!canGoBack}
+            onPress={() => webRef.current?.goBack()}
+            accessibilityLabel="Back"
+          />
           <IconButton icon="reload" variant="ghost" onPress={hardRefresh} accessibilityLabel="Refresh" />
           <IconButton icon="menu" variant="ghost" onPress={() => setMenuOpen(true)} accessibilityLabel="More" />
         </View>
@@ -1163,15 +1284,17 @@ export default function WebScreen() {
         key={wvKey}
         ref={webRef}
         source={{ uri: sourceUrl }}
-        injectedJavaScript={injected()}
+        // ✅ critical: early injection so dapp boot sees window.ethereum
+        injectedJavaScriptBeforeContentLoaded={injected()}
+        // keep a harmless injectedJavaScript so some Android builds don’t drop the bridge
+        injectedJavaScript={"true;"}
         javaScriptEnabled
         domStorageEnabled
         cacheEnabled
         incognito={false}
-        // allow new-window requests and capture them
         setSupportMultipleWindows
         onOpenWindow={(e) => {
-          const targetUrl = e.nativeEvent?.targetUrl;
+          const targetUrl = (e as any).nativeEvent?.targetUrl;
           if (targetUrl) {
             const clean = stripDw(targetUrl);
             setCurrentUrl(clean);
@@ -1179,7 +1302,6 @@ export default function WebScreen() {
           }
         }}
         onShouldStartLoadWithRequest={(req) => {
-          // iOS: targetFrame === false => target=_blank / window.open
           const wantsNewWindow = (req as any).targetFrame === false;
           if (wantsNewWindow && req.url) {
             const clean = stripDw(req.url);
@@ -1195,13 +1317,11 @@ export default function WebScreen() {
           const clean = stripDw(nav.url || currentUrl);
           if (clean !== currentUrl) setCurrentUrl(clean);
 
-          // Persist recent with title
           if (nav.url) {
             upsertRecent(nav.url, nav.title || undefined).catch(() => {});
           }
         }}
         onLoadEnd={async () => {
-          // If we initiated a hard refresh, reset retry counter once it successfully loads
           setRefreshRetry(0);
 
           const already = await isDomainConnected(domain);
@@ -1214,11 +1334,8 @@ export default function WebScreen() {
           }
         }}
         onError={(e) => {
-          const code = e.nativeEvent.code ?? 0;
+          const code = (e as any).nativeEvent?.code ?? 0;
 
-          // iOS cancellation noise on reload/navigation:
-          // -999 cancelled, -1005 connection lost.
-          // Retry once for a user-triggered refresh.
           if ((code === -999 || code === -1005) && refreshRetry < 1) {
             setRefreshRetry((n) => n + 1);
             setTimeout(() => {
@@ -1229,7 +1346,6 @@ export default function WebScreen() {
           }
         }}
         renderError={(errorDomain, errorCode, errorDesc) => {
-          // For iOS cancel/lost-connection errors, show nothing (we auto-handle).
           if (errorCode === -999 || errorCode === -1005) {
             return <View style={{ flex: 1, backgroundColor: theme.bg }} />;
           }
@@ -1247,31 +1363,81 @@ export default function WebScreen() {
           );
         }}
         onMessage={async (e) => {
-          try {
-            const msg = JSON.parse(e.nativeEvent.data) as WVMessage;
+          const raw = (e as any).nativeEvent?.data;
+          if (typeof raw !== "string") return;
 
-            if (msg.type === "ETN_CONNECT_REQUEST") {
-              const already = await isDomainConnected(domain);
-              if (already) await respondAccounts(msg.origin, true);
-              else setPendingOrigin(msg.origin);
-              return;
-            }
+          const msg = safeJsonParse(raw) as WVMessage | null;
+          if (!msg) return;
 
-            if (msg.type === "ETN_RPC_REQUEST") {
-              const rpc: RpcReq = { id: msg.id, origin: msg.origin, method: msg.method, params: msg.params };
-              await handleRpc(rpc);
-              return;
-            }
-          } catch {
-            // ignore
+          if (msg.type === "ETN_CONNECT_REQUEST") {
+            const already = await isDomainConnected(domain);
+            if (already) await respondAccounts(msg.origin, true);
+            else setPendingOrigin(msg.origin);
+            return;
+          }
+
+          if (msg.type === "ETN_RPC_REQUEST") {
+            const rpc: RpcReq = { id: msg.id, origin: msg.origin, method: msg.method, params: msg.params };
+            await handleRpc(rpc);
           }
         }}
       />
 
-      {/* Bottom safe-area spacer */}
       <View style={{ height: Math.max(insets.bottom, 10), backgroundColor: theme.bg }} />
 
       <MenuSheet visible={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} />
+
+      <Modal visible={accountSwitcherOpen} transparent animationType="fade" onRequestClose={() => setAccountSwitcherOpen(false)}>
+        <View style={{ flex: 1 }}>
+          <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
+          <Pressable onPress={() => setAccountSwitcherOpen(false)} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+            <Pressable
+              onPress={() => {}}
+              style={{
+                backgroundColor: theme.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.border,
+                overflow: "hidden",
+                paddingBottom: 12 + Math.max(insets.bottom, 6),
+              }}
+            >
+              <View style={{ padding: 16, gap: 6 }}>
+                <T weight="bold" style={{ fontSize: 18 }}>
+                  Switch account
+                </T>
+                <T variant="caption" color={theme.muted}>
+                  This site will see the account you pick.
+                </T>
+              </View>
+              <View style={{ height: 1, backgroundColor: theme.border }} />
+              {accounts.map((a, idx) => (
+                <Pressable
+                  key={a.id}
+                  onPress={() => switchAccountLive(a.id)}
+                  style={({ pressed }) => ({
+                    padding: 16,
+                    borderTopWidth: idx === 0 ? 0 : 1,
+                    borderTopColor: theme.border,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    opacity: pressed ? 0.9 : 1,
+                  })}
+                >
+                  <View>
+                    <T weight="semibold">{a.label}</T>
+                    <T variant="caption" color={theme.muted}>
+                      {shorten(a.address)}
+                    </T>
+                  </View>
+                  {a.id === accountId ? <Ionicons name="checkmark-circle" size={20} color={theme.accent} /> : null}
+                </Pressable>
+              ))}
+            </Pressable>
+          </Pressable>
+        </View>
+      </Modal>
 
       <ConnectSheet
         visible={!!pendingOrigin}

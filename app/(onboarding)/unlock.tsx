@@ -6,13 +6,11 @@ import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Ionicons } from "@expo/vector-icons";
 
-import { Screen } from "@/src/ui/Screen";
-import { Button } from "@/src/ui/Button";
-import { T } from "@/src/ui/T";
+import { Screen } from "@/src/components/Screen";
+import { Button } from "@/src/components/Button";
+import { T } from "@/src/components/T";
 import { useTheme } from "@/src/theme/ThemeProvider";
 
-import { unlockVaultV1 } from "@/src/lib/vault";
-import { addressFromMnemonic } from "@/src/lib/derive";
 import { useSession } from "@/src/state/session";
 
 function is6Digits(s: string) {
@@ -23,7 +21,7 @@ export default function Unlock() {
   const router = useRouter();
   const { theme } = useTheme();
 
-  const setUnlocked = useSession((s) => s.setUnlocked);
+  const unlock = useSession((s) => s.unlock);
   const biometricEnabled = useSession((s) => s.biometricEnabled);
   const getBioPin = useSession((s) => s.getBioPin);
 
@@ -63,9 +61,7 @@ export default function Unlock() {
     setError(null);
 
     try {
-      const mnemonic = await unlockVaultV1(passcode);
-      const address = addressFromMnemonic(mnemonic);
-      setUnlocked(mnemonic, address);
+      await unlock(passcode);
       router.replace("/(tabs)/wallet");
     } catch {
       setPin("");
@@ -242,7 +238,7 @@ export default function Unlock() {
         {/* Status / Errors */}
         <View style={{ marginTop: 6, minHeight: 54, justifyContent: "center" }}>
           {error ? (
-            <T color={(theme as any).danger ?? "#EF4444"} style={{ textAlign: "center" }}>
+            <T color={theme.danger} style={{ textAlign: "center" }}>
               {error}
             </T>
           ) : (

@@ -4,7 +4,7 @@ import { useColorScheme } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 import { dark, light, Theme } from "./tokens";
-import { STORAGE_KEYS } from "@/src/lib/storageKeys";
+import { STORAGE_KEYS } from "@/src/lib/storage/keys";
 
 export type Mode = "system" | "light" | "dark";
 

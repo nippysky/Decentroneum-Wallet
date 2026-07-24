@@ -2,30 +2,80 @@
   "expo": {
     "name": "Decent Wallet",
     "slug": "decent-wallet",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "decentwallet",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "primaryColor": "#4DEE54",
+    "backgroundColor": "#060807",
+    "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem — send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
+    "owner": "decentroneum",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.decentwallet"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.decentroneum.wallet",
+      "buildNumber": "1",
+      "icon": {
+        "light": "./assets/images/icon.png",
+        "dark": "./assets/images/icon-dark.png",
+        "tinted": "./assets/images/icon-tinted.png"
+      },
+      "associatedDomains": [
+        "applinks:decentroneum.com",
+        "applinks:app.decentroneum.com"
+      ],
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Decent Wallet uses Face ID to unlock your wallet and confirm transactions without re-entering your passcode.",
+        "NSCameraUsageDescription": "Decent Wallet uses the camera to scan QR codes for wallet addresses and dApp connections.",
+        "NSPhotoLibraryAddUsageDescription": "Decent Wallet can save QR codes and receipts to your photo library when you choose to.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["remote-notification"]
+      },
+      "entitlements": {
+        "com.apple.developer.associated-domains": [
+          "applinks:decentroneum.com",
+          "applinks:app.decentroneum.com"
+        ]
+      }
     },
     "android": {
+      "package": "com.decentroneum.wallet",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "monochromeImage": "./assets/images/android-icon-monochrome.png",
+        "backgroundColor": "#4DEE54"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.decentwallet"
+      "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "decentroneum.com", "pathPrefix": "/wc" },
+            { "scheme": "https", "host": "app.decentroneum.com", "pathPrefix": "/wc" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Decent Wallet",
+      "themeColor": "#060807",
+      "backgroundColor": "#060807"
     },
     "plugins": [
       "expo-router",
@@ -33,20 +83,50 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#4DEE54",
           "dark": {
-            "backgroundColor": "#000000"
+            "image": "./assets/images/splash-icon-dark.png",
+            "backgroundColor": "#060807"
           }
         }
       ],
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Decent Wallet uses Face ID to unlock your wallet and confirm transactions."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Decent Wallet uses the camera to scan wallet addresses and dApp connection QR codes.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#4DEE54",
+          "defaultChannel": "transactions",
+          "enableBackgroundRemoteNotifications": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
     }
   }
 }

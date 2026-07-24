@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Animated, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { T } from "@/src/ui/T";
+import { T } from "@/src/components/T";
 
 export function Toast({
   message,

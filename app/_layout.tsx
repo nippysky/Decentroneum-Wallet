@@ -8,6 +8,12 @@ import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import { useSession } from "@/src/state/session";
+import { useAccounts } from "@/src/state/accounts";
+import { useTokens } from "@/src/state/tokens";
+import { useNotifications } from "@/src/state/notifications";
+import { useWalletConnect } from "@/src/state/walletconnect";
+import { SessionProposalSheet } from "@/src/features/walletconnect/SessionProposalSheet";
+import { SessionRequestSheet } from "@/src/features/walletconnect/SessionRequestSheet";
 import {
   useFonts,
   Lexend_400Regular,
@@ -29,11 +35,29 @@ export default function RootLayout() {
   const hydrate = useSession((s) => s.hydrate);
   const lock = useSession((s) => s.lock);
   const autoLockEnabled = useSession((s) => s.autoLockEnabled);
+  const isUnlocked = useSession((s) => s.isUnlocked);
+  const hydrateAccounts = useAccounts((s) => s.hydrate);
+  const hydrateTokens = useTokens((s) => s.hydrate);
+  const hydrateNotifications = useNotifications((s) => s.hydrate);
+  const initWalletConnect = useWalletConnect((s) => s.init);
 
-  // 1) Hydrate persisted session prefs (autolock/biometric flags, etc.)
+  // 1) Hydrate persisted session prefs (autolock/biometric flags, etc.),
+  //    non-secret account metadata (addresses/labels only), the token
+  //    registry (bundled defaults first, remote list refreshed in
+  //    background), and — if the user previously opted in — restart the
+  //    incoming-funds notification watcher.
   useEffect(() => {
     hydrate().catch(() => {});
-  }, [hydrate]);
+    hydrateAccounts().catch(() => {});
+    hydrateTokens().catch(() => {});
+    hydrateNotifications().catch(() => {});
+  }, [hydrate, hydrateAccounts, hydrateTokens, hydrateNotifications]);
+
+  // WalletConnect's relay connection only makes sense once there's a wallet
+  // to connect — initialize lazily on first unlock, not at cold start.
+  useEffect(() => {
+    if (isUnlocked) initWalletConnect().catch(() => {});
+  }, [isUnlocked, initWalletConnect]);
 
   // Avoid stale closure inside AppState listener
   const autoLockRef = useRef(autoLockEnabled);
@@ -68,6 +92,12 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <Stack screenOptions={{ headerShown: false }} />
+      {isUnlocked ? (
+        <>
+          <SessionProposalSheet />
+          <SessionRequestSheet />
+        </>
+      ) : null}
     </ThemeProvider>
   );
 }

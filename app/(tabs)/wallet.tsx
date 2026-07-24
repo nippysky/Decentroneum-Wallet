@@ -11,6 +11,7 @@ import {
   View,
   Animated,
   Easing,
+  Share,
 } from "react-native";
 
 import { Redirect, useFocusEffect } from "expo-router";
@@ -21,23 +22,28 @@ import QRCode from "react-native-qrcode-svg";
 import { ethers } from "ethers";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { Screen } from "@/src/ui/Screen";
-import { Button } from "@/src/ui/Button";
-import { T } from "@/src/ui/T";
-import { IconButton } from "@/src/ui/IconButton";
-import { Toast } from "@/src/ui/Toast";
-import { TokenLogo } from "@/src/ui/TokenLogo";
-import { HoldToConfirm } from "@/src/ui/HoldToConfirm";
+import { Screen } from "@/src/components/Screen";
+import { Button } from "@/src/components/Button";
+import { T } from "@/src/components/T";
+import { IconButton } from "@/src/components/IconButton";
+import { Toast } from "@/src/components/Toast";
+import { TokenLogo } from "@/src/components/TokenLogo";
+import { HoldToConfirm } from "@/src/components/HoldToConfirm";
+import { DragHandle } from "@/src/components/DragHandle";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
+import { useAccounts } from "@/src/state/accounts";
+import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
 
-import { ELECTRONEUM } from "@/src/lib/networks";
-import { ALLOWLIST_TOKENS, ListedToken } from "@/src/lib/tokens";
-import { getErc20BalanceRaw } from "@/src/lib/erc20";
+import { ELECTRONEUM } from "@/src/lib/chain/networks";
+import { useTokens } from "@/src/state/tokens";
+import type { ListedToken } from "@/src/lib/tokens/registry";
+import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { formatUnits2dp } from "@/src/lib/format";
-import { getNativeBalanceWei } from "@/src/lib/rpc";
-import { estimateFees, sendErc20, sendNativeETN } from "@/src/lib/wallet";
+import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
+import { estimateFees, sendErc20, sendNativeETN } from "@/src/lib/chain/wallet";
 
 /* ---------------------------------- helpers ---------------------------------- */
 
@@ -191,14 +197,21 @@ function ReceiveModal({
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
               borderWidth: 1,
               borderColor: theme.border,
-              padding: 18,
-              gap: 14,
+              padding: SPACING.xl,
+              gap: SPACING.md,
+              shadowColor: "#000",
+              shadowOpacity: 0.2,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: -6 },
+              elevation: 12,
             }}
           >
+            <DragHandle />
+
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
                 Receive
@@ -214,20 +227,20 @@ function ReceiveModal({
             <View
               style={{
                 alignSelf: "center",
-                padding: 14,
-                borderRadius: 18,
+                padding: SPACING.lg,
+                borderRadius: RADIUS.xl,
                 borderWidth: 1,
-                borderColor: theme.border,
+                borderColor: theme.accent,
                 backgroundColor: theme.bg,
               }}
             >
-              <QRCode value={address} size={190} />
+              <QRCode value={address} size={190} color={theme.text} backgroundColor={theme.bg} />
             </View>
 
             <View
               style={{
-                padding: 14,
-                borderRadius: 18,
+                padding: SPACING.md,
+                borderRadius: RADIUS.lg,
                 borderWidth: 1,
                 borderColor: theme.border,
                 backgroundColor: theme.bg,
@@ -237,23 +250,32 @@ function ReceiveModal({
                 gap: 10,
               }}
             >
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
                 <T variant="caption" color={theme.muted}>
                   Your address
                 </T>
-                <T weight="semibold" numberOfLines={1}>
+                <T weight="semibold" numberOfLines={1} style={{ fontFamily: "Menlo" }}>
                   {address}
                 </T>
               </View>
 
-              <IconButton
-                icon="copy-outline"
-                accessibilityLabel="Copy address"
-                onPress={async () => {
-                  await Clipboard.setStringAsync(address);
-                  onCopy();
-                }}
-              />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <IconButton
+                  icon="share-outline"
+                  accessibilityLabel="Share address"
+                  onPress={() => {
+                    Share.share({ message: address }).catch(() => {});
+                  }}
+                />
+                <IconButton
+                  icon="copy-outline"
+                  accessibilityLabel="Copy address"
+                  onPress={async () => {
+                    await Clipboard.setStringAsync(address);
+                    onCopy();
+                  }}
+                />
+              </View>
             </View>
 
             <Button title="Done" onPress={onClose} />
@@ -272,7 +294,8 @@ function SendSheet({
   visible,
   onClose,
   address,
-  mnemonic,
+  vaultKey,
+  accountId,
   nativeBalanceWei,
   tokenBalances,
   onSent,
@@ -280,12 +303,14 @@ function SendSheet({
   visible: boolean;
   onClose: () => void;
   address: string;
-  mnemonic: string;
+  vaultKey: Uint8Array;
+  accountId: string;
   nativeBalanceWei: bigint;
   tokenBalances: Record<string, bigint>;
   onSent: (hash: string) => void;
 }) {
   const { theme } = useTheme();
+  const tokens = useTokens((s) => s.tokens);
 
   const [asset, setAsset] = useState<Asset>({ kind: "native" });
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -485,6 +510,9 @@ function SendSheet({
     setErr(null);
 
     try {
+      // Decrypt on-demand, right before signing — never held in memory longer than needed.
+      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
+
       if (asset.kind === "native") {
         const res = await sendNativeETN({ mnemonic, to: to.trim(), amountEth: amount });
         onSent(res.hash);
@@ -510,7 +538,7 @@ function SendSheet({
     } finally {
       setSending(false);
     }
-  }, [asset, amount, mnemonic, onClose, onSent, to]);
+  }, [asset, amount, vaultKey, accountId, onClose, onSent, to]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -521,15 +549,22 @@ function SendSheet({
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
               borderWidth: 1,
               borderColor: theme.border,
-              padding: 18,
-              gap: 14,
+              padding: SPACING.xl,
+              gap: SPACING.md,
               overflow: "hidden",
+              shadowColor: "#000",
+              shadowOpacity: 0.2,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: -6 },
+              elevation: 12,
             }}
           >
+            <DragHandle />
+
             {/* header */}
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <T variant="h2" weight="bold" style={{ fontSize: 22, lineHeight: 26 }}>
@@ -657,9 +692,9 @@ function SendSheet({
                     width: 10,
                     height: 10,
                     borderRadius: 10,
-                    backgroundColor: validTo ? "#22C55E" : "transparent",
+                    backgroundColor: validTo ? theme.positive : "transparent",
                     borderWidth: 1,
-                    borderColor: validTo ? "#22C55E" : theme.border,
+                    borderColor: validTo ? theme.positive : theme.border,
                   }}
                 />
                 <TextInput
@@ -738,13 +773,13 @@ function SendSheet({
               </View>
 
               {amountTooHigh ? (
-                <T variant="caption" color={(theme as any).danger ?? "#EF4444"}>
+                <T variant="caption" color={theme.danger}>
                   Amount exceeds available balance.
                 </T>
               ) : null}
 
               {insufficientFeeForToken ? (
-                <T variant="caption" color={(theme as any).danger ?? "#EF4444"}>
+                <T variant="caption" color={theme.danger}>
                   Not enough {ELECTRONEUM.symbol} to cover network fees for this token transfer.
                 </T>
               ) : null}
@@ -783,7 +818,7 @@ function SendSheet({
             </View>
 
             {err ? (
-              <T variant="caption" color={(theme as any).danger ?? "#EF4444"}>
+              <T variant="caption" color={theme.danger}>
                 {err}
               </T>
             ) : null}
@@ -806,14 +841,15 @@ function SendSheet({
                   <Pressable
                     onPress={() => {}}
                     style={{
-                      backgroundColor: theme.card,
-                      borderRadius: 24,
+                      backgroundColor: theme.bgElevated,
+                      borderRadius: RADIUS.xxl,
                       borderWidth: 1,
                       borderColor: theme.border,
-                      padding: 16,
-                      gap: 12,
+                      padding: SPACING.lg,
+                      gap: SPACING.md,
                     }}
                   >
+                    <DragHandle />
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                       <T weight="bold" style={{ fontSize: 18 }}>
                         Review
@@ -863,13 +899,16 @@ function SendSheet({
                   <Pressable
                     onPress={() => {}}
                     style={{
-                      backgroundColor: theme.card,
-                      borderRadius: 24,
+                      backgroundColor: theme.bgElevated,
+                      borderRadius: RADIUS.xxl,
                       borderWidth: 1,
                       borderColor: theme.border,
                       overflow: "hidden",
                     }}
                   >
+                    <View style={{ paddingTop: 10 }}>
+                      <DragHandle />
+                    </View>
                     <View style={{ padding: 16, gap: 6 }}>
                       <T weight="bold" style={{ fontSize: 18 }}>
                         Choose asset
@@ -907,7 +946,7 @@ function SendSheet({
                       {asset.kind === "native" ? <Ionicons name="checkmark" size={18} color={theme.text} /> : null}
                     </Pressable>
 
-                    {ALLOWLIST_TOKENS.map((t) => {
+                    {tokens.map((t) => {
                       const selected = asset.kind === "token" && asset.token.address.toLowerCase() === t.address.toLowerCase();
                       return (
                         <Pressable
@@ -961,8 +1000,12 @@ export default function Wallet() {
   const { theme } = useTheme();
 
   const isUnlocked = useSession((s) => s.isUnlocked);
-  const address = useSession((s) => s.address);
-  const mnemonic = useSession((s) => s.mnemonic);
+  const vaultKey = useSession((s) => s.vaultKey);
+  const accounts = useAccounts((s) => s.accounts);
+  const activeAccount = useAccounts((s) => s.activeAccount());
+  const tokens = useTokens((s) => s.tokens);
+  const address = activeAccount?.address ?? null;
+  const accountId = activeAccount?.id ?? null;
 
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
@@ -1024,7 +1067,7 @@ export default function Wallet() {
 
   const refreshTokens = useCallback(async () => {
     if (!address) return;
-    if (ALLOWLIST_TOKENS.length === 0) return;
+    if (tokens.length === 0) return;
 
     setTokenLoading(true);
 
@@ -1034,15 +1077,15 @@ export default function Wallet() {
 
       let i = 0;
       async function worker() {
-        while (i < ALLOWLIST_TOKENS.length) {
+        while (i < tokens.length) {
           const idx = i++;
-          const t = ALLOWLIST_TOKENS[idx];
+          const t = tokens[idx];
           const bal = await getErc20BalanceRaw(t.address, address!);
           results.push([t.address.toLowerCase(), bal]);
         }
       }
 
-      await Promise.all(Array.from({ length: Math.min(limit, ALLOWLIST_TOKENS.length) }, worker));
+      await Promise.all(Array.from({ length: Math.min(limit, tokens.length) }, worker));
 
       const map: Record<string, bigint> = {};
       for (const [k, v] of results) map[k] = v;
@@ -1050,7 +1093,7 @@ export default function Wallet() {
     } finally {
       setTokenLoading(false);
     }
-  }, [address]);
+  }, [address, tokens]);
 
   const refreshAll = useCallback(async () => {
     if (!address) return;
@@ -1107,7 +1150,7 @@ export default function Wallet() {
 
   if (!isUnlocked) return <Redirect href="/unlock" />;
 
-  const canOpenSend = !!(address && mnemonic);
+  const canOpenSend = !!(address && vaultKey && accountId);
 
   const showBalanceSkeleton = loading && balanceWei === 0n;
   const showTokenSkeleton = tokenLoading && Object.keys(tokenBalances).length === 0;
@@ -1146,6 +1189,45 @@ export default function Wallet() {
             </Pressable>
           </View>
 
+          {/* Account switcher — only shown once there's more than one account */}
+          {accounts.length > 1 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
+              {accounts.map((a) => {
+                const active = a.id === accountId;
+                return (
+                  <Pressable
+                    key={a.id}
+                    onPress={() => useAccounts.getState().switchAccount(a.id)}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      paddingHorizontal: 14,
+                      paddingVertical: 9,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? theme.accent : theme.border,
+                      backgroundColor: active ? theme.accent : theme.card,
+                      opacity: pressed ? 0.9 : 1,
+                    })}
+                  >
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: active ? theme.bg : theme.muted,
+                      }}
+                    />
+                    <T weight="semibold" style={{ color: active ? theme.bg : theme.text, fontSize: 13 }}>
+                      {a.label}
+                    </T>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+
           {/* Balance hero */}
           <View
             style={{
@@ -1179,7 +1261,7 @@ export default function Wallet() {
               )}
             </View>
 
-            {err ? <T color={(theme as any).danger ?? "#EF4444"}>{err}</T> : null}
+            {err ? <T color={theme.danger}>{err}</T> : null}
           </View>
 
           {/* Account + actions */}
@@ -1240,7 +1322,7 @@ export default function Wallet() {
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <T weight="bold">Tokens</T>
               <T variant="caption" color={theme.muted}>
-                {ALLOWLIST_TOKENS.length > 0 ? "" : "Coming online"}
+                {tokens.length > 0 ? "" : "Coming online"}
               </T>
             </View>
 
@@ -1253,14 +1335,12 @@ export default function Wallet() {
                 overflow: "hidden",
               }}
             >
-              {ALLOWLIST_TOKENS.length === 0 ? (
+              {tokens.length === 0 ? (
                 <View style={{ padding: 16 }}>
-                  <T color={theme.muted}>
-                    Add vetted Electroneum ERC-20 tokens to <T weight="semibold">ALLOWLIST_TOKENS</T> to show them here.
-                  </T>
+                  <T color={theme.muted}>Vetted Electroneum tokens will appear here automatically as they're approved.</T>
                 </View>
               ) : (
-                ALLOWLIST_TOKENS.map((t, idx) => {
+                tokens.map((t, idx) => {
                   const raw = tokenBalances[t.address.toLowerCase()] ?? 0n;
                   const balText = formatUnits2dp(raw, t.decimals);
 
@@ -1277,9 +1357,9 @@ export default function Wallet() {
                         gap: 12,
                       }}
                     >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                         <TokenLogo symbol={t.symbol} uri={t.logoURI} />
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                           <T weight="semibold">{t.symbol}</T>
                           <T variant="caption" color={theme.muted} numberOfLines={1}>
                             {t.name}
@@ -1319,12 +1399,13 @@ export default function Wallet() {
         toastVisible={toastVisible}
       />
 
-      {address && mnemonic ? (
+      {address && vaultKey && accountId ? (
         <SendSheet
           visible={sendOpen}
           onClose={() => setSendOpen(false)}
           address={address}
-          mnemonic={mnemonic}
+          vaultKey={vaultKey}
+          accountId={accountId}
           nativeBalanceWei={balanceWei}
           tokenBalances={tokenBalances}
           onSent={() => {

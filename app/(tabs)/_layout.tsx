@@ -8,11 +8,11 @@ import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { T } from "@/src/ui/T";
+import { T } from "@/src/components/T";
 
-type RouteName = "wallet" | "browser" | "settings";
+type RouteName = "wallet" | "explorer" | "browser" | "settings";
 
-const TAB_ORDER: RouteName[] = ["wallet", "browser", "settings"];
+const TAB_ORDER: RouteName[] = ["wallet", "explorer", "browser", "settings"];
 
 function TabIcon({
   name,
@@ -27,6 +27,8 @@ function TabIcon({
     switch (name) {
       case "wallet":
         return focused ? "wallet" : "wallet-outline";
+      case "explorer":
+        return focused ? "telescope" : "telescope-outline";
       case "browser":
         return focused ? "compass" : "compass-outline";
       case "settings":
@@ -212,6 +214,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="wallet" options={{ title: "Wallet" }} />
+      <Tabs.Screen name="explorer" options={{ title: "Explorer" }} />
       <Tabs.Screen name="browser" options={{ title: "Browser" }} />
       <Tabs.Screen name="settings" options={{ title: "Settings" }} />
     </Tabs>

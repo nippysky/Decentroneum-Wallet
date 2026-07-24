@@ -6,7 +6,7 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { T } from "@/src/ui/T";
+import { T } from "@/src/components/T";
 
 export function DWTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { theme } = useTheme();

@@ -1,12 +1,13 @@
-import { setHasWallet } from "@/src/lib/vault";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { Button } from "@/src/ui/Button";
-import { Screen } from "@/src/ui/Screen";
-import { T } from "@/src/ui/T";
+import { Button } from "@/src/components/Button";
+import { Screen } from "@/src/components/Screen";
+import { T } from "@/src/components/T";
+import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 function shuffle<T>(arr: T[]) {
   const a = [...arr];
@@ -49,17 +50,21 @@ export default function Confirm() {
 
   return (
     <Screen>
-      <View style={{ gap: 14 }}>
-        <T variant="h2" weight="bold">Confirm your phrase</T>
-        <T color={theme.muted}>Tap the words in the correct order.</T>
+      <View style={{ gap: SPACING.lg }}>
+        <OnboardingProgress step={1} total={3} />
+
+        <View style={{ gap: 6 }}>
+          <T variant="h2" weight="bold">Confirm your phrase</T>
+          <T color={theme.muted}>Tap the words in the correct order.</T>
+        </View>
 
         {/* Selected */}
         <View
           style={{
-            padding: 14,
-            borderRadius: 18,
+            padding: SPACING.lg,
+            borderRadius: RADIUS.xl,
             borderWidth: 1,
-            borderColor: correctSoFar ? theme.border : theme.danger ?? "#EF4444",
+            borderColor: correctSoFar ? theme.border : theme.danger,
             backgroundColor: theme.card,
             minHeight: 84,
           }}
@@ -118,13 +123,13 @@ export default function Confirm() {
 
         <View style={{ marginTop: 14, gap: 12 }}>
           <Button
-            title="Finish setup"
+            title="Continue"
             disabled={!complete}
-            onPress={async () => {
-              // In the next iteration we’ll store encrypted key material.
-              await setHasWallet();
-         router.replace({ pathname: "/passcode", params: { mnemonic } });
-
+            onPress={() => {
+              // The vault (and setHasWallet()) is only written once the user
+              // sets a passcode on the next screen — never mark a wallet as
+              // "present" before it's actually encrypted and saved.
+              router.push({ pathname: "/(onboarding)/passcode", params: { mnemonic } });
             }}
           />
           <Button

@@ -7,13 +7,17 @@ import * as Clipboard from "expo-clipboard";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Ionicons } from "@expo/vector-icons";
 
-import { Screen } from "@/src/ui/Screen";
-import { T } from "@/src/ui/T";
-import { Button } from "@/src/ui/Button";
-import { Toast } from "@/src/ui/Toast";
+import { Screen } from "@/src/components/Screen";
+import { T } from "@/src/components/T";
+import { Button } from "@/src/components/Button";
+import { Toast } from "@/src/components/Toast";
 import { useTheme, Mode } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
-import { unlockVaultV1 } from "@/src/lib/vault";
+import { useAccounts } from "@/src/state/accounts";
+import { unlockVault } from "@/src/lib/crypto/vault";
+import { AccountManager } from "@/src/features/accounts/AccountManager";
+import { ConnectionsPanel } from "@/src/features/walletconnect/ConnectionsPanel";
+import { useNotifications } from "@/src/state/notifications";
 
 function Card({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme();
@@ -301,7 +305,7 @@ function PasscodeSheet({
             </View>
 
             {err ? (
-              <T color={(theme as any).danger ?? "#EF4444"} style={{ textAlign: "center" }}>
+              <T color={theme.danger} style={{ textAlign: "center" }}>
                 {err}
               </T>
             ) : null}
@@ -360,8 +364,10 @@ export default function Settings() {
 
   const resetDeviceWallet = useSession((s) => s.resetDeviceWallet);
 
-  // (optional) mnemonic may exist in session memory while unlocked
-  const sessionMnemonic = useSession((s) => (s as any).mnemonic) as string | null;
+  const notificationsEnabled = useNotifications((s) => s.enabled);
+  const enableNotifications = useNotifications((s) => s.enable);
+  const disableNotifications = useNotifications((s) => s.disable);
+  const [notifHelpOpen, setNotifHelpOpen] = useState(false);
 
   const [eraseOpen, setEraseOpen] = useState(false);
 
@@ -459,6 +465,28 @@ export default function Settings() {
             Settings
           </T>
 
+          {/* Accounts */}
+          <View style={{ gap: 10 }}>
+            <View style={{ paddingHorizontal: 2 }}>
+              <T weight="bold">Accounts</T>
+              <T variant="caption" color={theme.muted}>
+                Switch between wallets or add another.
+              </T>
+            </View>
+            <AccountManager />
+          </View>
+
+          {/* Connections */}
+          <View style={{ gap: 10 }}>
+            <View style={{ paddingHorizontal: 2 }}>
+              <T weight="bold">Connections</T>
+              <T variant="caption" color={theme.muted}>
+                Apps connected via WalletConnect.
+              </T>
+            </View>
+            <ConnectionsPanel />
+          </View>
+
           {/* Security */}
           <Card>
             <SectionHeader title="Security" subtitle="Protect this wallet on this device." />
@@ -516,6 +544,38 @@ export default function Settings() {
             />
           </Card>
 
+          {/* Notifications */}
+          <Card>
+            <SectionHeader title="Notifications" subtitle="Get notified about wallet activity." />
+            <Divider />
+
+            <Row
+              icon="notifications-outline"
+              title="Funds received"
+              subtitle={
+                notificationsEnabled
+                  ? "You'll be notified when you receive ETN or tokens"
+                  : "Enable to get notified on incoming funds"
+              }
+              right={
+                <Switch
+                  value={notificationsEnabled}
+                  onValueChange={async (v) => {
+                    if (v) {
+                      const granted = await enableNotifications();
+                      if (!granted) setNotifHelpOpen(true);
+                    } else {
+                      await disableNotifications();
+                    }
+                  }}
+                  trackColor={{ false: theme.border, true: theme.accent }}
+                  thumbColor={theme.card}
+                  ios_backgroundColor={theme.border}
+                />
+              }
+            />
+          </Card>
+
           {/* Appearance */}
           <Card>
             <SectionHeader title="Appearance" subtitle="Choose your theme preference." />
@@ -564,6 +624,34 @@ export default function Settings() {
               onPress={() => setEraseOpen(true)}
             />
           </Card>
+
+          {/* About */}
+          <Card>
+            <SectionHeader title="About" subtitle="Decent Wallet by Decentroneum." />
+            <Divider />
+            <Row
+              icon="globe-outline"
+              title="decentroneum.com"
+              subtitle="Web3 platform for the Electroneum ecosystem"
+              onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://decentroneum.com" } })}
+            />
+            <Divider />
+            <Row
+              icon="logo-twitter"
+              title="Follow on X"
+              subtitle="@decentroneum"
+              onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://x.com/decentroneum" } })}
+            />
+            <Divider />
+            <Row
+              icon="paper-plane-outline"
+              title="Join Telegram"
+              subtitle="Community & support"
+              onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://t.me/DecentroneumGroupChat" } })}
+            />
+            <Divider />
+            <Row icon="information-circle-outline" title="Version" subtitle="2.0.0" />
+          </Card>
         </View>
       </ScrollView>
 
@@ -575,13 +663,10 @@ export default function Settings() {
         confirmText="Continue"
         onCancel={() => setViewPhrasePending(false)}
         onConfirm={async (pin) => {
-          const maybeVault = (await unlockVaultV1(pin)) as any;
-
-          const mnemonic =
-            (sessionMnemonic && typeof sessionMnemonic === "string" ? sessionMnemonic : null) ??
-            (typeof maybeVault?.mnemonic === "string" ? maybeVault.mnemonic : null) ??
-            (typeof maybeVault?.wallet?.mnemonic === "string" ? maybeVault.wallet.mnemonic : null);
-
+          // Step-up auth: re-verify the passcode even though the app is already
+          // unlocked, then decrypt just the active account's mnemonic.
+          const { key, activeAccountId } = await unlockVault(pin);
+          const mnemonic = await useAccounts.getState().revealMnemonic(key, activeAccountId);
           if (!mnemonic) throw new Error("Mnemonic unavailable");
 
           setPhrase(mnemonic.trim());
@@ -674,7 +759,7 @@ export default function Settings() {
           await setBiometricEnabled(false);
         }}
         onConfirm={async (pin) => {
-          await unlockVaultV1(pin);
+          await unlockVault(pin); // verifies the passcode; throws if wrong
           await setBioPin(pin);
           await setBiometricEnabled(true);
           setBioPendingOn(false);
@@ -690,6 +775,17 @@ export default function Settings() {
         secondaryText="Cancel"
         onPrimary={() => setBioHelpOpen(false)}
         onSecondary={() => setBioHelpOpen(false)}
+      />
+
+      {/* Notification permission help */}
+      <Sheet
+        visible={notifHelpOpen}
+        title="Notifications are off"
+        message="Decent Wallet needs permission from iOS/Android to notify you about incoming funds. Enable notifications for Decent Wallet in your device Settings, then try again."
+        primaryText="OK"
+        secondaryText="Cancel"
+        onPrimary={() => setNotifHelpOpen(false)}
+        onSecondary={() => setNotifHelpOpen(false)}
       />
 
       {/* Erase sheet */}

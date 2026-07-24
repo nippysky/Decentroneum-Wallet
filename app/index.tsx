@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { hasWallet } from "@/src/lib/vault";
+import { hasWallet } from "@/src/lib/crypto/vault";
 import { useTheme } from "@/src/theme/ThemeProvider";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});

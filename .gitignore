@@ -41,3 +41,9 @@ app-example
 # generated native folders
 /ios
 /android
+
+# push server (server/)
+server/.env
+server/data/
+server/dist/
+server/logs/

@@ -1,7 +1,7 @@
 // src/lib/biometrics.ts
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
-import { STORAGE_KEYS } from "@/src/lib/storageKeys";
+import { STORAGE_KEYS } from "@/src/lib/storage/keys";
 
 export const BIO_PIN_KEY = "DW_BIOMETRIC_PIN_V1";
 

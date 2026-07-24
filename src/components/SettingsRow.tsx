@@ -3,7 +3,7 @@ import React from "react";
 import { Pressable, Switch, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { T } from "@/src/ui/T";
+import { T } from "@/src/components/T";
 
 export function SettingsRow({
   title,
