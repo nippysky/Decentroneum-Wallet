@@ -1,1003 +1,38 @@
 // app/(tabs)/wallet.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-  Animated,
-  Easing,
-  Share,
-} from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 
-import { Redirect, useFocusEffect } from "expo-router";
-import { BlurView } from "expo-blur";
+import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { Ionicons } from "@expo/vector-icons";
-import QRCode from "react-native-qrcode-svg";
-import { ethers } from "ethers";
-import { LinearGradient } from "expo-linear-gradient";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { Screen } from "@/src/components/Screen";
-import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
-import { IconButton } from "@/src/components/IconButton";
 import { Toast } from "@/src/components/Toast";
 import { TokenLogo } from "@/src/components/TokenLogo";
-import { HoldToConfirm } from "@/src/components/HoldToConfirm";
-import { DragHandle } from "@/src/components/DragHandle";
-import { RADIUS, SPACING } from "@/src/theme/tokens";
+import { ReceiveModal } from "@/src/components/ReceiveModal";
+import { CircleAction } from "@/src/components/CircleAction";
+import { Skeleton } from "@/src/components/Skeleton";
+import { SPACING } from "@/src/theme/tokens";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
-import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
+import { useNotificationFeed } from "@/src/state/notificationsFeed";
 
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
 import { useTokens } from "@/src/state/tokens";
-import type { ListedToken } from "@/src/lib/tokens/registry";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
-import { formatUnits2dp } from "@/src/lib/format";
+import { formatNative2dpFromWei, formatUnits2dp, shortAddr } from "@/src/lib/format";
+import { useAutoRefresh } from "@/src/hooks/useAutoRefresh";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
-import { estimateFees, sendErc20, sendNativeETN } from "@/src/lib/chain/wallet";
-
-/* ---------------------------------- helpers ---------------------------------- */
-
-function shortAddr(a: string) {
-  return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "";
-}
-
-function formatNative2dpFromWei(wei: bigint) {
-  const s = ethers.formatEther(wei);
-  const [intPartRaw, fracRaw = ""] = s.split(".");
-  const intPart = intPartRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const frac = (fracRaw + "00").slice(0, 2);
-  return `${intPart}.${frac}`;
-}
-
-function sanitizeAmountInput(s: string) {
-  const cleaned = s.replace(/[^\d.]/g, "");
-  const parts = cleaned.split(".");
-  if (parts.length <= 1) return cleaned;
-  return `${parts[0]}.${parts.slice(1).join("")}`;
-}
-
-function trimZeros(s: string) {
-  if (!s.includes(".")) return s;
-  return s.replace(/(\.\d*?[1-9])0+$/g, "$1").replace(/\.0+$/, "");
-}
-
-function formatFromWeiWithDp(wei: bigint, dp: number) {
-  const s = ethers.formatEther(wei);
-  const [intRaw, fracRaw = ""] = s.split(".");
-  const intPart = intRaw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const frac = (fracRaw + "0".repeat(dp)).slice(0, dp);
-  return dp > 0 ? `${intPart}.${frac}` : intPart;
-}
-
-const WEI_0_01 = 10n ** 16n; // 0.01 ETN
-const WEI_0_0001 = 10n ** 14n; // 0.0001 ETN
-
-function formatFeeWeiAdaptive(wei: bigint) {
-  if (wei === 0n) return "0";
-  if (wei < WEI_0_0001) return formatFromWeiWithDp(wei, 8);
-  if (wei < WEI_0_01) return formatFromWeiWithDp(wei, 6);
-  return formatFromWeiWithDp(wei, 2);
-}
-
-const ETN_LOGO_URI = "https://s2.coinmarketcap.com/static/img/coins/200x200/2137.png";
-
-/* ----------------------------- Skeleton shimmer ----------------------------- */
-
-function Skeleton({
-  width,
-  height,
-  radius = 12,
-  style,
-}: {
-  width: number | string;
-  height: number;
-  radius?: number;
-  style?: any;
-}) {
-  const { theme } = useTheme();
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: 1100,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [anim]);
-
-  const translateX = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-120, 120],
-  });
-
-  return (
-    <View
-      style={[
-        {
-          width,
-          height,
-          borderRadius: radius,
-          overflow: "hidden",
-          backgroundColor: theme.bg,
-          borderWidth: 1,
-          borderColor: theme.border,
-        },
-        style,
-      ]}
-    >
-      <Animated.View
-        style={{
-          position: "absolute",
-          top: 0,
-          bottom: 0,
-          left: -160,
-          width: 240,
-          transform: [{ translateX }],
-        }}
-      >
-        <LinearGradient
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          colors={[theme.bg, theme.card, theme.bg]}
-          style={{ flex: 1 }}
-        />
-      </Animated.View>
-    </View>
-  );
-}
-
-/* ---------------------------------- types ---------------------------------- */
-
-type Asset = { kind: "native" } | { kind: "token"; token: ListedToken };
-
-function assetLabel(a: Asset) {
-  return a.kind === "native" ? ELECTRONEUM.symbol : a.token.symbol;
-}
-
-/* ---------------------------------- Receive ---------------------------------- */
-
-function ReceiveModal({
-  visible,
-  onClose,
-  address,
-  onCopy,
-  toastMsg,
-  toastVisible,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  address: string;
-  onCopy: () => void;
-  toastMsg: string;
-  toastVisible: boolean;
-}) {
-  const { theme } = useTheme();
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
-
-        <Pressable onPress={onClose} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: theme.bgElevated,
-              borderRadius: RADIUS.xxl,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: SPACING.xl,
-              gap: SPACING.md,
-              shadowColor: "#000",
-              shadowOpacity: 0.2,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: -6 },
-              elevation: 12,
-            }}
-          >
-            <DragHandle />
-
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
-                Receive
-              </T>
-
-              <Pressable onPress={onClose} style={{ padding: 10 }}>
-                <Ionicons name="close" size={20} color={theme.text} />
-              </Pressable>
-            </View>
-
-            <T color={theme.muted}>Share this address to receive {ELECTRONEUM.symbol} or tokens on Electroneum EVM.</T>
-
-            <View
-              style={{
-                alignSelf: "center",
-                padding: SPACING.lg,
-                borderRadius: RADIUS.xl,
-                borderWidth: 1,
-                borderColor: theme.accent,
-                backgroundColor: theme.bg,
-              }}
-            >
-              <QRCode value={address} size={190} color={theme.text} backgroundColor={theme.bg} />
-            </View>
-
-            <View
-              style={{
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
-            >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <T variant="caption" color={theme.muted}>
-                  Your address
-                </T>
-                <T weight="semibold" numberOfLines={1} style={{ fontFamily: "Menlo" }}>
-                  {address}
-                </T>
-              </View>
-
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <IconButton
-                  icon="share-outline"
-                  accessibilityLabel="Share address"
-                  onPress={() => {
-                    Share.share({ message: address }).catch(() => {});
-                  }}
-                />
-                <IconButton
-                  icon="copy-outline"
-                  accessibilityLabel="Copy address"
-                  onPress={async () => {
-                    await Clipboard.setStringAsync(address);
-                    onCopy();
-                  }}
-                />
-              </View>
-            </View>
-
-            <Button title="Done" onPress={onClose} />
-          </Pressable>
-        </Pressable>
-
-        <Toast message={toastMsg} visible={toastVisible} bottomOffset={24} />
-      </View>
-    </Modal>
-  );
-}
-
-/* ----------------------------------- Send ----------------------------------- */
-
-function SendSheet({
-  visible,
-  onClose,
-  address,
-  vaultKey,
-  accountId,
-  nativeBalanceWei,
-  tokenBalances,
-  onSent,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  address: string;
-  vaultKey: Uint8Array;
-  accountId: string;
-  nativeBalanceWei: bigint;
-  tokenBalances: Record<string, bigint>;
-  onSent: (hash: string) => void;
-}) {
-  const { theme } = useTheme();
-  const tokens = useTokens((s) => s.tokens);
-
-  const [asset, setAsset] = useState<Asset>({ kind: "native" });
-  const [pickerOpen, setPickerOpen] = useState(false);
-
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
-
-  const [feeWei, setFeeWei] = useState<bigint>(0n);
-  const [feeMode, setFeeMode] = useState<"eip1559" | "legacy" | "unknown">("unknown");
-  const [estimating, setEstimating] = useState(false);
-
-  const [reviewOpen, setReviewOpen] = useState(false);
-
-  const [sending, setSending] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const amountInputRef = useRef<TextInput>(null);
-
-  const selectedAvailableText = useMemo(() => {
-    if (asset.kind === "native") return `${formatNative2dpFromWei(nativeBalanceWei)} ${ELECTRONEUM.symbol}`;
-    const raw = tokenBalances[asset.token.address.toLowerCase()] ?? 0n;
-    return `${formatUnits2dp(raw, asset.token.decimals)} ${asset.token.symbol}`;
-  }, [asset, nativeBalanceWei, tokenBalances]);
-
-  const validTo = useMemo(() => ethers.isAddress(to.trim()), [to]);
-  const isSelf = useMemo(() => {
-    if (!validTo) return false;
-    return to.trim().toLowerCase() === address.toLowerCase();
-  }, [validTo, to, address]);
-
-  const parsedAmount = useMemo(() => {
-    try {
-      if (!amount || Number(amount) <= 0) return null;
-      if (asset.kind === "native") return ethers.parseEther(amount);
-      return ethers.parseUnits(amount, asset.token.decimals);
-    } catch {
-      return null;
-    }
-  }, [amount, asset]);
-
-  const canMax = useMemo(() => {
-    if (!validTo) return false;
-    if (asset.kind === "native") return nativeBalanceWei > 0n;
-    const raw = asset.kind === "token" ? tokenBalances[asset.token.address.toLowerCase()] ?? 0n : 0n;
-    return raw > 0n;
-  }, [asset, nativeBalanceWei, tokenBalances, validTo]);
-
-  const feeLabel = useMemo(() => {
-    if (feeMode === "eip1559") return "Network fee • EIP-1559";
-    return "Network fee";
-  }, [feeMode]);
-
-  useEffect(() => {
-    if (!visible) return;
-    setErr(null);
-    setPickerOpen(false);
-    setReviewOpen(false);
-    setAsset({ kind: "native" });
-    setTo("");
-    setAmount("");
-    setFeeWei(0n);
-    setFeeMode("unknown");
-    setEstimating(false);
-    setSending(false);
-  }, [visible]);
-
-  useEffect(() => {
-    let alive = true;
-
-    async function run() {
-      if (!visible) return;
-      setErr(null);
-
-      if (!validTo) {
-        setFeeWei(0n);
-        setFeeMode("unknown");
-        return;
-      }
-
-      try {
-        setEstimating(true);
-
-        if (asset.kind === "native") {
-          const valueWei = parsedAmount ?? 0n;
-
-          const tx: ethers.TransactionRequest = {
-            to: to.trim(),
-            value: valueWei,
-            chainId: ELECTRONEUM.chainId,
-          };
-
-          const fee = await estimateFees({ from: address, tx });
-
-          if (!alive) return;
-          setFeeWei(fee.feeWei);
-          setFeeMode(fee.mode);
-          return;
-        }
-
-        const amtRaw = parsedAmount ?? 0n;
-        const iface = new ethers.Interface(["function transfer(address to, uint256 amount) returns (bool)"]);
-        const data = iface.encodeFunctionData("transfer", [to.trim(), amtRaw]);
-
-        const tx: ethers.TransactionRequest = {
-          to: asset.token.address,
-          data,
-          value: 0n,
-          chainId: ELECTRONEUM.chainId,
-        };
-
-        const fee = await estimateFees({ from: address, tx });
-
-        if (!alive) return;
-        setFeeWei(fee.feeWei);
-        setFeeMode(fee.mode);
-      } catch (e: any) {
-        if (!alive) return;
-        setFeeWei(0n);
-        setFeeMode("unknown");
-        setErr(e?.message ?? "Failed to estimate fee");
-      } finally {
-        if (alive) setEstimating(false);
-      }
-    }
-
-    run();
-    return () => {
-      alive = false;
-    };
-  }, [visible, validTo, asset, to, parsedAmount, address]);
-
-  const amountTooHigh = useMemo(() => {
-    if (!parsedAmount) return false;
-
-    if (asset.kind === "native") {
-      return parsedAmount + feeWei > nativeBalanceWei;
-    }
-
-    const raw = tokenBalances[asset.token.address.toLowerCase()] ?? 0n;
-    return parsedAmount > raw;
-  }, [asset, parsedAmount, feeWei, nativeBalanceWei, tokenBalances]);
-
-  const insufficientFeeForToken = useMemo(() => {
-    if (asset.kind !== "token") return false;
-    if (!validTo) return false;
-    return feeWei > nativeBalanceWei;
-  }, [asset, feeWei, nativeBalanceWei, validTo]);
-
-  const totalText = useMemo(() => {
-    if (asset.kind !== "native") return null;
-
-    const valueWei = parsedAmount ?? 0n;
-    const totalWei = valueWei + feeWei;
-
-    const dp = feeWei !== 0n && feeWei < WEI_0_01 ? 6 : 2;
-    return `${formatFromWeiWithDp(totalWei, dp)} ${ELECTRONEUM.symbol}`;
-  }, [asset, parsedAmount, feeWei]);
-
-  const feeText = useMemo(() => `${formatFeeWeiAdaptive(feeWei)} ${ELECTRONEUM.symbol}`, [feeWei]);
-
-  const onPressMax = useCallback(() => {
-    if (!canMax) return;
-
-    if (asset.kind === "native") {
-      const maxWei = nativeBalanceWei > feeWei ? nativeBalanceWei - feeWei : 0n;
-      const s = trimZeros(ethers.formatEther(maxWei));
-      setAmount(s === "0" ? "" : s);
-      return;
-    }
-
-    const raw = tokenBalances[asset.token.address.toLowerCase()] ?? 0n;
-    const s = trimZeros(ethers.formatUnits(raw, asset.token.decimals));
-    setAmount(s === "0" ? "" : s);
-  }, [asset, canMax, feeWei, nativeBalanceWei, tokenBalances]);
-
-  const onPasteTo = useCallback(async () => {
-    try {
-      const s = await Clipboard.getStringAsync();
-      const trimmed = s.trim();
-      if (trimmed) setTo(trimmed);
-    } catch {}
-  }, []);
-
-  const canProceed = useMemo(() => {
-    if (!visible) return false;
-    if (!validTo) return false;
-    if (!parsedAmount || parsedAmount <= 0n) return false;
-    if (amountTooHigh) return false;
-    if (insufficientFeeForToken) return false;
-    if (sending) return false;
-    if (estimating) return false;
-    return true;
-  }, [visible, validTo, parsedAmount, amountTooHigh, insufficientFeeForToken, sending, estimating]);
-
-  const broadcastTx = useCallback(async () => {
-    setSending(true);
-    setErr(null);
-
-    try {
-      // Decrypt on-demand, right before signing — never held in memory longer than needed.
-      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
-
-      if (asset.kind === "native") {
-        const res = await sendNativeETN({ mnemonic, to: to.trim(), amountEth: amount });
-        onSent(res.hash);
-        setReviewOpen(false);
-        onClose();
-        return;
-      }
-
-      const res = await sendErc20({
-        mnemonic,
-        tokenAddress: asset.token.address,
-        to: to.trim(),
-        amount,
-        decimals: asset.token.decimals,
-      });
-
-      onSent(res.hash);
-      setReviewOpen(false);
-      onClose();
-    } catch (e: any) {
-      setErr(e?.message ?? "Failed to send");
-      setReviewOpen(false);
-    } finally {
-      setSending(false);
-    }
-  }, [asset, amount, vaultKey, accountId, onClose, onSent, to]);
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
-
-        <Pressable onPress={onClose} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: theme.bgElevated,
-              borderRadius: RADIUS.xxl,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: SPACING.xl,
-              gap: SPACING.md,
-              overflow: "hidden",
-              shadowColor: "#000",
-              shadowOpacity: 0.2,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: -6 },
-              elevation: 12,
-            }}
-          >
-            <DragHandle />
-
-            {/* header */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T variant="h2" weight="bold" style={{ fontSize: 22, lineHeight: 26 }}>
-                Send
-              </T>
-
-              <Pressable
-                onPress={onClose}
-                style={({ pressed }) => ({
-                  width: 38,
-                  height: 38,
-                  borderRadius: 14,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: theme.bg,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  opacity: pressed ? 0.9 : 1,
-                })}
-              >
-                <Ionicons name="close" size={18} color={theme.text} />
-              </Pressable>
-            </View>
-
-            {/* asset */}
-            <View style={{ gap: 8 }}>
-              <T variant="caption" color={theme.muted}>
-                Asset
-              </T>
-              <Pressable
-                onPress={() => setPickerOpen(true)}
-                style={({ pressed }) => ({
-                  padding: 14,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.bg,
-                  opacity: pressed ? 0.92 : 1,
-                })}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
-                    {asset.kind === "native" ? (
-                      <TokenLogo symbol={ELECTRONEUM.symbol} uri={ETN_LOGO_URI} size={38} />
-                    ) : (
-                      <TokenLogo symbol={asset.token.symbol} uri={asset.token.logoURI} size={38} />
-                    )}
-
-                    <View style={{ flex: 1 }}>
-                      <T weight="bold" style={{ fontSize: 16 }}>
-                        {asset.kind === "native" ? ELECTRONEUM.symbol : asset.token.symbol}
-                      </T>
-                      <T variant="caption" color={theme.muted}>
-                        {asset.kind === "native" ? "Native" : asset.token.name}
-                      </T>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <T weight="semibold" color={theme.muted}>
-                      Change
-                    </T>
-                    <Ionicons name="chevron-forward" size={16} color={theme.muted} />
-                  </View>
-                </View>
-              </Pressable>
-            </View>
-
-            {/* available */}
-            <View
-              style={{
-                padding: 14,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
-                gap: 6,
-              }}
-            >
-              <T variant="caption" color={theme.muted}>
-                Available
-              </T>
-
-              <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-                <T weight="bold" style={{ fontSize: 20 }}>
-                  {selectedAvailableText}
-                </T>
-                {estimating ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <ActivityIndicator />
-                  </View>
-                ) : null}
-              </View>
-            </View>
-
-            {/* to */}
-            <View style={{ gap: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <T variant="caption" color={theme.muted}>
-                  To
-                </T>
-
-                <Pressable onPress={onPasteTo} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1, padding: 6 })}>
-                  <T weight="semibold" color={theme.muted}>
-                    Paste
-                  </T>
-                </Pressable>
-              </View>
-
-              <View
-                style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 12,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.bg,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <View
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 10,
-                    backgroundColor: validTo ? theme.positive : "transparent",
-                    borderWidth: 1,
-                    borderColor: validTo ? theme.positive : theme.border,
-                  }}
-                />
-                <TextInput
-                  value={to}
-                  onChangeText={setTo}
-                  placeholder="0x…"
-                  placeholderTextColor={theme.muted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={{
-                    flex: 1,
-                    color: theme.text,
-                    fontSize: 16,
-                    padding: 0,
-                  }}
-                  returnKeyType="next"
-                  onSubmitEditing={() => amountInputRef.current?.focus()}
-                />
-              </View>
-
-              {isSelf ? (
-                <T variant="caption" color={theme.muted}>
-                  This is your own address. Funds will return (minus network fees).
-                </T>
-              ) : null}
-            </View>
-
-            {/* amount */}
-            <View style={{ gap: 8 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <T variant="caption" color={theme.muted}>
-                  Amount
-                </T>
-
-                <Pressable
-                  onPress={onPressMax}
-                  disabled={!canMax}
-                  style={({ pressed }) => ({ opacity: !canMax ? 0.45 : pressed ? 0.9 : 1, padding: 6 })}
-                >
-                  <T weight="semibold" color={theme.muted}>
-                    Max
-                  </T>
-                </Pressable>
-              </View>
-
-              <View
-                style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 12,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.bg,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <TextInput
-                  ref={amountInputRef}
-                  value={amount}
-                  onChangeText={(s) => setAmount(sanitizeAmountInput(s))}
-                  placeholder="0.00"
-                  placeholderTextColor={theme.muted}
-                  keyboardType="decimal-pad"
-                  style={{
-                    flex: 1,
-                    color: theme.text,
-                    fontSize: 18,
-                    padding: 0,
-                  }}
-                />
-                <T weight="semibold" color={theme.muted}>
-                  {assetLabel(asset)}
-                </T>
-              </View>
-
-              {amountTooHigh ? (
-                <T variant="caption" color={theme.danger}>
-                  Amount exceeds available balance.
-                </T>
-              ) : null}
-
-              {insufficientFeeForToken ? (
-                <T variant="caption" color={theme.danger}>
-                  Not enough {ELECTRONEUM.symbol} to cover network fees for this token transfer.
-                </T>
-              ) : null}
-            </View>
-
-            {/* fee + total */}
-            <View
-              style={{
-                padding: 14,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
-                gap: 10,
-              }}
-            >
-              <T variant="caption" color={theme.muted}>
-                {feeLabel}
-              </T>
-
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <T color={theme.muted}>Fee</T>
-                <T weight="bold">{estimating ? "…" : feeText}</T>
-              </View>
-
-              {asset.kind === "native" ? (
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <T color={theme.muted}>Total</T>
-                  <T weight="bold">{estimating ? "…" : totalText ?? "—"}</T>
-                </View>
-              ) : (
-                <T variant="caption" color={theme.muted}>
-                  Fees are paid in {ELECTRONEUM.symbol}.
-                </T>
-              )}
-            </View>
-
-            {err ? (
-              <T variant="caption" color={theme.danger}>
-                {err}
-              </T>
-            ) : null}
-
-            {/* actions */}
-            <HoldToConfirm
-              title={sending ? "Sending…" : "Hold to review"}
-              holdingTitle="Release to cancel"
-              disabled={!canProceed}
-              onConfirmed={() => setReviewOpen(true)}
-              style={{ backgroundColor: theme.primary }}
-            />
-            <Button title="Cancel" variant="outline" onPress={onClose} />
-
-            {/* Review step */}
-            {reviewOpen ? (
-              <View style={StyleSheet.absoluteFillObject}>
-                <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
-                <Pressable onPress={() => setReviewOpen(false)} style={{ flex: 1, justifyContent: "flex-end", padding: 18 }}>
-                  <Pressable
-                    onPress={() => {}}
-                    style={{
-                      backgroundColor: theme.bgElevated,
-                      borderRadius: RADIUS.xxl,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      padding: SPACING.lg,
-                      gap: SPACING.md,
-                    }}
-                  >
-                    <DragHandle />
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                      <T weight="bold" style={{ fontSize: 18 }}>
-                        Review
-                      </T>
-                      <Pressable onPress={() => setReviewOpen(false)} style={{ padding: 8 }}>
-                        <Ionicons name="close" size={18} color={theme.text} />
-                      </Pressable>
-                    </View>
-
-                    <View style={{ gap: 8 }}>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                        <T color={theme.muted}>To</T>
-                        <T weight="semibold" numberOfLines={1} style={{ maxWidth: "70%" }}>
-                          {to.trim()}
-                        </T>
-                      </View>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                        <T color={theme.muted}>Amount</T>
-                        <T weight="bold">
-                          {amount || "—"} {assetLabel(asset)}
-                        </T>
-                      </View>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                        <T color={theme.muted}>Fee</T>
-                        <T weight="bold">{feeText}</T>
-                      </View>
-                      {asset.kind === "native" ? (
-                        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-                          <T color={theme.muted}>Total</T>
-                          <T weight="bold">{totalText ?? "—"}</T>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    <Button title={sending ? "Sending…" : "Confirm send"} onPress={broadcastTx} disabled={sending} />
-                    <Button title="Back" variant="outline" onPress={() => setReviewOpen(false)} disabled={sending} />
-                  </Pressable>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {/* Picker overlay */}
-            {pickerOpen ? (
-              <View style={StyleSheet.absoluteFillObject}>
-                <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
-                <Pressable onPress={() => setPickerOpen(false)} style={{ flex: 1, justifyContent: "flex-end", padding: 18 }}>
-                  <Pressable
-                    onPress={() => {}}
-                    style={{
-                      backgroundColor: theme.bgElevated,
-                      borderRadius: RADIUS.xxl,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <View style={{ paddingTop: 10 }}>
-                      <DragHandle />
-                    </View>
-                    <View style={{ padding: 16, gap: 6 }}>
-                      <T weight="bold" style={{ fontSize: 18 }}>
-                        Choose asset
-                      </T>
-                      <T variant="caption" color={theme.muted}>
-                        Send native ETN or a vetted token.
-                      </T>
-                    </View>
-
-                    <View style={{ height: 1, backgroundColor: theme.border }} />
-
-                    <Pressable
-                      onPress={() => {
-                        setAsset({ kind: "native" });
-                        setPickerOpen(false);
-                      }}
-                      style={({ pressed }) => ({
-                        padding: 16,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        opacity: pressed ? 0.92 : 1,
-                      })}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                        <TokenLogo symbol={ELECTRONEUM.symbol} uri={ETN_LOGO_URI} size={38} />
-                        <View>
-                          <T weight="bold">{ELECTRONEUM.symbol}</T>
-                          <T variant="caption" color={theme.muted}>
-                            Native
-                          </T>
-                        </View>
-                      </View>
-
-                      {asset.kind === "native" ? <Ionicons name="checkmark" size={18} color={theme.text} /> : null}
-                    </Pressable>
-
-                    {tokens.map((t) => {
-                      const selected = asset.kind === "token" && asset.token.address.toLowerCase() === t.address.toLowerCase();
-                      return (
-                        <Pressable
-                          key={t.address}
-                          onPress={() => {
-                            setAsset({ kind: "token", token: t });
-                            setPickerOpen(false);
-                          }}
-                          style={({ pressed }) => ({
-                            padding: 16,
-                            borderTopWidth: 1,
-                            borderTopColor: theme.border,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            opacity: pressed ? 0.92 : 1,
-                          })}
-                        >
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                            <TokenLogo symbol={t.symbol} uri={t.logoURI} size={38} />
-                            <View>
-                              <T weight="bold">{t.symbol}</T>
-                              <T variant="caption" color={theme.muted}>
-                                {t.name}
-                              </T>
-                            </View>
-                          </View>
-
-                          {selected ? <Ionicons name="checkmark" size={18} color={theme.text} /> : null}
-                        </Pressable>
-                      );
-                    })}
-
-                    <View style={{ padding: 16 }}>
-                      <Button title="Close" variant="outline" onPress={() => setPickerOpen(false)} />
-                    </View>
-                  </Pressable>
-                </Pressable>
-              </View>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </View>
-    </Modal>
-  );
-}
 
 /* ---------------------------------- Wallet ---------------------------------- */
 
 export default function Wallet() {
   const { theme } = useTheme();
+  const router = useRouter();
 
   const isUnlocked = useSession((s) => s.isUnlocked);
   const vaultKey = useSession((s) => s.vaultKey);
@@ -1008,11 +43,15 @@ export default function Wallet() {
   const accountId = activeAccount?.id ?? null;
 
   const [receiveOpen, setReceiveOpen] = useState(false);
-  const [sendOpen, setSendOpen] = useState(false);
 
-  // Data loading (for skeletons / content only)
-  const [loading, setLoading] = useState(false);
-  const [tokenLoading, setTokenLoading] = useState(false);
+  const unreadNotifications = useNotificationFeed((s) => s.unread);
+  const refreshNotificationFeed = useNotificationFeed((s) => s.refresh);
+
+  // Data loading (for skeletons / content only) — default true so the
+  // skeleton is what paints on first frame, not a "0.00" that then gets
+  // replaced a moment later (that flash reads as janky, not fast).
+  const [loading, setLoading] = useState(true);
+  const [tokenLoading, setTokenLoading] = useState(true);
 
   // ✅ Pull-to-refresh UI state (ONLY for RefreshControl)
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -1049,27 +88,35 @@ export default function Wallet() {
 
   const nativeBalanceText = useMemo(() => formatNative2dpFromWei(balanceWei), [balanceWei]);
 
-  const refreshNative = useCallback(async () => {
+  // `silent` = a background auto-refresh. It must not toggle the skeleton
+  // flags, or the UI would flash placeholders every polling tick even
+  // though we already have perfectly good data on screen.
+  const refreshNative = useCallback(async (silent = false) => {
     if (!address) return;
 
-    setLoading(true);
+    if (!silent) setLoading(true);
     setErr(null);
 
     try {
       const wei = await getNativeBalanceWei(address);
       setBalanceWei(wei);
     } catch (e: any) {
-      setErr(e?.message ?? "Failed to load balance");
+      // Only surface the error for user-initiated loads — a failed
+      // background poll should leave the last-known balance alone.
+      if (!silent) setErr(e?.message ?? "Failed to load balance");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [address]);
 
-  const refreshTokens = useCallback(async () => {
+  const refreshTokens = useCallback(async (silent = false) => {
     if (!address) return;
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+      setTokenLoading(false);
+      return;
+    }
 
-    setTokenLoading(true);
+    if (!silent) setTokenLoading(true);
 
     try {
       const limit = 4;
@@ -1091,11 +138,11 @@ export default function Wallet() {
       for (const [k, v] of results) map[k] = v;
       setTokenBalances(map);
     } finally {
-      setTokenLoading(false);
+      if (!silent) setTokenLoading(false);
     }
   }, [address, tokens]);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (silent = false) => {
     if (!address) return;
 
     if (refreshInFlightRef.current) {
@@ -1103,7 +150,7 @@ export default function Wallet() {
     }
 
     const p = (async () => {
-      await Promise.all([refreshNative(), refreshTokens()]);
+      await Promise.all([refreshNative(silent), refreshTokens(silent)]);
     })();
 
     refreshInFlightRef.current = p;
@@ -1115,37 +162,46 @@ export default function Wallet() {
     }
   }, [address, refreshNative, refreshTokens]);
 
-  const schedulePostTxRefresh = useCallback(() => {
-    refreshAll().catch(() => {});
-
-    const t1 = setTimeout(() => refreshAll().catch(() => {}), 6000) as unknown as number;
-    const t2 = setTimeout(() => refreshAll().catch(() => {}), 15000) as unknown as number;
-
-    postTxTimersRef.current.push(t1, t2);
-  }, [refreshAll]);
-
-  // ✅ Pull-to-refresh handler (only this sets pullRefreshing)
+  // Pull-to-refresh handler — the only path that shows the RefreshControl
+  // spinner, and the only one that surfaces load errors.
   const onPullRefresh = useCallback(async () => {
     setPullRefreshing(true);
     try {
-      await refreshAll();
+      await refreshAll(false);
     } finally {
       setPullRefreshing(false);
     }
   }, [refreshAll]);
 
-  // ✅ Focus refresh WITHOUT triggering RefreshControl UI
+  // Live data: polls while this screen is focused and the app is in the
+  // foreground, refreshes instantly on focus/foreground return, and fires
+  // catch-up refreshes to cover indexer lag right after a transaction.
+  // Pull-to-refresh is now a backup, not a requirement.
+  const silentRefresh = useCallback(() => refreshAll(true), [refreshAll]);
+  // refreshKey: address — switching accounts refreshes immediately rather
+  // than waiting for the next poll tick.
+  useAutoRefresh(silentRefresh, { enabled: !!address, refreshKey: address });
+
+  // Drop the previous account's numbers the instant the address changes.
+  // Without this, a switch briefly shows the OLD account's balance under the
+  // NEW account's name — worse than showing a skeleton, because it reads as
+  // real data. Skeletons appear immediately, then the refresh above fills in.
+  const lastAddressRef = useRef<string | null>(address);
+  useEffect(() => {
+    if (lastAddressRef.current === address) return;
+    lastAddressRef.current = address;
+    setBalanceWei(0n);
+    setTokenBalances({});
+    setErr(null);
+    setLoading(true);
+    setTokenLoading(true);
+  }, [address]);
+
   useFocusEffect(
     useCallback(() => {
-      if (!address) return;
-
-      refreshAll().catch(() => {});
-
-      // If user left mid-pull-refresh, ensure UI resets when they come back
-      return () => {
-        setPullRefreshing(false);
-      };
-    }, [address, refreshAll])
+      refreshNotificationFeed().catch(() => {});
+      return () => setPullRefreshing(false);
+    }, [refreshNotificationFeed])
   );
 
   if (!isUnlocked) return <Redirect href="/unlock" />;
@@ -1158,204 +214,214 @@ export default function Wallet() {
   return (
     <Screen>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 28 }}
+        contentContainerStyle={{ paddingBottom: SPACING.xxl }}
         // ✅ RefreshControl driven ONLY by pullRefreshing
         refreshControl={<RefreshControl refreshing={pullRefreshing} onRefresh={onPullRefresh} />}
         showsVerticalScrollIndicator={false}
       >
-        <View style={{ gap: 14 }}>
+        <View>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <T variant="h2" weight="bold">
+            <T weight="bold" style={{ fontSize: 32, lineHeight: 38, letterSpacing: -1 }}>
               Wallet
             </T>
 
-            {/* Manual refresh button (does not “pull down” the ScrollView) */}
+            {/* Manual refresh is pull-to-refresh now (see RefreshControl
+                above) — this spot is the notifications bell instead. */}
             <Pressable
-              onPress={() => refreshAll().catch(() => {})}
+              onPress={() => router.push("/notifications")}
               style={({ pressed }) => ({
                 width: 40,
                 height: 40,
-                borderRadius: 16,
+                borderRadius: 999,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: theme.card,
-                borderWidth: 1,
-                borderColor: theme.border,
-                opacity: pressed ? 0.9 : 1,
+                backgroundColor: theme.surface2,
+                opacity: pressed ? 0.7 : 1,
               })}
-              accessibilityLabel="Refresh balances"
+              accessibilityLabel="Notifications"
             >
-              <Ionicons name="refresh" size={18} color={theme.text} />
+              <Ionicons name="notifications-outline" size={18} color={theme.text} />
+              {unreadNotifications > 0 ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: theme.danger,
+                    borderWidth: 1.5,
+                    borderColor: theme.surface2,
+                  }}
+                />
+              ) : null}
             </Pressable>
           </View>
 
           {/* Account switcher — only shown once there's more than one account */}
           {accounts.length > 1 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
-              {accounts.map((a) => {
-                const active = a.id === accountId;
-                return (
-                  <Pressable
-                    key={a.id}
-                    onPress={() => useAccounts.getState().switchAccount(a.id)}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      paddingHorizontal: 14,
-                      paddingVertical: 9,
-                      borderRadius: 999,
-                      borderWidth: 1,
-                      borderColor: active ? theme.accent : theme.border,
-                      backgroundColor: active ? theme.accent : theme.card,
-                      opacity: pressed ? 0.9 : 1,
-                    })}
-                  >
-                    <View
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: active ? theme.bg : theme.muted,
+            <>
+              <View style={{ height: SPACING.lg }} />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.sm, paddingRight: 4 }}>
+                {accounts.map((a) => {
+                  const active = a.id === accountId;
+                  return (
+                    <Pressable
+                      key={a.id}
+                      onPress={async () => {
+                        if (active) return;
+                        await useAccounts.getState().switchAccount(a.id);
+                        showToast(`Switched to ${a.label}`);
                       }}
-                    />
-                    <T weight="semibold" style={{ color: active ? theme.bg : theme.text, fontSize: 13 }}>
-                      {a.label}
-                    </T>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        paddingHorizontal: 14,
+                        paddingVertical: 9,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        borderColor: active ? theme.primary : theme.border,
+                        // Same treatment as the Send button (ink in light mode,
+                        // neon in dark mode) — one consistent "emphasis" color
+                        // app-wide instead of a separate green fill just here.
+                        backgroundColor: active ? theme.primary : "transparent",
+                        opacity: pressed ? 0.9 : 1,
+                      })}
+                    >
+                      <View
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: 4,
+                          backgroundColor: active ? theme.bg : theme.muted,
+                        }}
+                      />
+                      <T weight="semibold" style={{ color: active ? theme.bg : theme.text, fontSize: 13 }}>
+                        {a.label}
+                      </T>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </>
           ) : null}
 
-          {/* Balance hero */}
-          <View
-            style={{
-              padding: 18,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: theme.border,
-              backgroundColor: theme.card,
-              gap: 10,
-            }}
-          >
+          <View style={{ height: SPACING.xl }} />
+
+          {/* Balance hero — quiet, no card chrome, the number does the talking.
+              Tappable straight into the native ETN detail page, same as any
+              token row below. */}
+          <Pressable onPress={() => router.push("/token/native")} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>
             <T variant="caption" color={theme.muted}>
               Balance
             </T>
 
+            <View style={{ height: SPACING.xs }} />
+
             <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10 }}>
               {showBalanceSkeleton ? (
-                <Skeleton width={170} height={38} radius={14} />
+                <Animated.View exiting={FadeOut.duration(180)}>
+                  <Skeleton width={190} height={46} radius={14} />
+                </Animated.View>
               ) : (
-                <T weight="bold" style={{ fontSize: 34, lineHeight: 38 }}>
-                  {nativeBalanceText}
-                </T>
+                <Animated.View entering={FadeIn.duration(260)}>
+                  <T weight="bold" style={{ fontSize: 44, lineHeight: 50, letterSpacing: -1.2 }}>
+                    {nativeBalanceText}
+                  </T>
+                </Animated.View>
               )}
 
               {showBalanceSkeleton ? (
-                <Skeleton width={38} height={16} radius={10} style={{ marginBottom: 6 }} />
+                <Animated.View exiting={FadeOut.duration(180)}>
+                  <Skeleton width={38} height={16} radius={10} style={{ marginBottom: 8 }} />
+                </Animated.View>
               ) : (
-                <T weight="semibold" color={theme.muted}>
-                  {ELECTRONEUM.symbol}
-                </T>
+                <Animated.View entering={FadeIn.duration(260)}>
+                  <T weight="semibold" color={theme.muted} style={{ fontSize: 16 }}>
+                    {ELECTRONEUM.symbol}
+                  </T>
+                </Animated.View>
               )}
             </View>
 
-            {err ? <T color={theme.danger}>{err}</T> : null}
+            {err ? (
+              <>
+                <View style={{ height: SPACING.xs }} />
+                <T variant="caption" color={theme.danger}>
+                  {err}
+                </T>
+              </>
+            ) : null}
+
+            {/* Tap-to-copy address — quiet, no box, replaces the old boxed
+                "Account" row entirely. */}
+            <View style={{ height: SPACING.sm }} />
+            <Pressable
+              onPress={async () => {
+                if (!address) return;
+                await Clipboard.setStringAsync(address);
+                showToast("Address copied");
+              }}
+              hitSlop={8}
+              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1, alignSelf: "flex-start" })}
+            >
+              <T variant="caption" color={theme.muted}>
+                {address ? shortAddr(address) : "—"}
+              </T>
+              <Ionicons name="copy-outline" size={13} color={theme.muted} />
+            </Pressable>
+          </Pressable>
+
+          <View style={{ height: SPACING.xxl }} />
+
+          {/* Actions — circular and unboxed, not two stretched pill buttons
+              inside a card. Fewer, bigger, more deliberate touch targets;
+              tighter gap so the pair reads as one deliberate group rather
+              than two buttons floating apart. */}
+          <View style={{ flexDirection: "row", gap: SPACING.xl }}>
+            <CircleAction
+              icon="arrow-up"
+              label="Send"
+              primary
+              disabled={!canOpenSend}
+              onPress={() => {
+                if (!canOpenSend) return;
+                router.push("/send");
+              }}
+            />
+            <CircleAction icon="qr-code-outline" label="Receive" onPress={() => setReceiveOpen(true)} />
           </View>
 
-          {/* Account + actions */}
-          <View
-            style={{
-              padding: 18,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: theme.border,
-              backgroundColor: theme.card,
-              gap: 12,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <View>
-                <T variant="caption" color={theme.muted}>
-                  Account
-                </T>
-                <T weight="bold" style={{ marginTop: 4 }}>
-                  {address ? shortAddr(address) : "—"}
-                </T>
-              </View>
-
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <IconButton
-                  icon="copy-outline"
-                  accessibilityLabel="Copy address"
-                  onPress={async () => {
-                    if (!address) return;
-                    await Clipboard.setStringAsync(address);
-                    showToast("Address copied");
-                  }}
-                />
-                <IconButton
-                  icon="qr-code-outline"
-                  accessibilityLabel="Show receive QR"
-                  onPress={() => setReceiveOpen(true)}
-                />
-              </View>
-            </View>
-
-            <View style={{ flexDirection: "row", gap: 12 }}>
-              <Button
-                title="Send"
-                onPress={() => {
-                  if (!canOpenSend) return;
-                  setSendOpen(true);
-                }}
-                style={{ flex: 1 }}
-                disabled={!canOpenSend}
-              />
-              <Button title="Receive" variant="outline" style={{ flex: 1 }} onPress={() => setReceiveOpen(true)} />
-            </View>
-          </View>
+          <View style={{ height: SPACING.xxl }} />
 
           {/* Tokens */}
-          <View style={{ gap: 10 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T weight="bold">Tokens</T>
-              <T variant="caption" color={theme.muted}>
-                {tokens.length > 0 ? "" : "Coming online"}
-              </T>
-            </View>
+          <View>
+            <T weight="bold" style={{ fontSize: 18 }}>Tokens</T>
 
-            <View
-              style={{
-                borderRadius: 22,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.card,
-                overflow: "hidden",
-              }}
-            >
-              {tokens.length === 0 ? (
-                <View style={{ padding: 16 }}>
-                  <T color={theme.muted}>Vetted Electroneum tokens will appear here automatically as they're approved.</T>
-                </View>
-              ) : (
-                tokens.map((t, idx) => {
+            <View style={{ height: SPACING.sm }} />
+
+            {tokens.length === 0 ? (
+              <T color={theme.muted}>Vetted Electroneum tokens will appear here automatically as they&apos;re approved.</T>
+            ) : (
+              <View style={{ gap: 2 }}>
+                {tokens.map((t) => {
                   const raw = tokenBalances[t.address.toLowerCase()] ?? 0n;
                   const balText = formatUnits2dp(raw, t.decimals);
 
                   return (
-                    <View
+                    <Pressable
                       key={t.address}
-                      style={{
-                        padding: 16,
-                        borderTopWidth: idx === 0 ? 0 : 1,
-                        borderTopColor: theme.border,
+                      onPress={() => router.push(`/token/${t.address}`)}
+                      style={({ pressed }) => ({
+                        paddingVertical: SPACING.sm,
                         flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "space-between",
                         gap: 12,
-                      }}
+                        opacity: pressed ? 0.7 : 1,
+                      })}
                     >
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                         <TokenLogo symbol={t.symbol} uri={t.logoURI} />
@@ -1369,51 +435,36 @@ export default function Wallet() {
 
                       <View style={{ alignItems: "flex-end" }}>
                         {showTokenSkeleton ? (
-                          <Skeleton width={84} height={16} radius={10} />
+                          <Animated.View exiting={FadeOut.duration(180)}>
+                            <Skeleton width={84} height={16} radius={10} />
+                          </Animated.View>
                         ) : (
-                          <T weight="semibold">{tokenLoading ? "…" : balText}</T>
+                          <Animated.View entering={FadeIn.duration(260)}>
+                            <T weight="semibold">{balText}</T>
+                          </Animated.View>
                         )}
                         {showTokenSkeleton ? (
-                          <Skeleton width={34} height={12} radius={8} style={{ marginTop: 6 }} />
+                          <Animated.View exiting={FadeOut.duration(180)}>
+                            <Skeleton width={34} height={12} radius={8} style={{ marginTop: 6 }} />
+                          </Animated.View>
                         ) : (
-                          <T variant="caption" color={theme.muted}>
-                            {t.symbol}
-                          </T>
+                          <Animated.View entering={FadeIn.duration(260)}>
+                            <T variant="caption" color={theme.muted}>
+                              {t.symbol}
+                            </T>
+                          </Animated.View>
                         )}
                       </View>
-                    </View>
+                    </Pressable>
                   );
-                })
-              )}
-            </View>
+                })}
+              </View>
+            )}
           </View>
         </View>
       </ScrollView>
 
-      <ReceiveModal
-        visible={receiveOpen}
-        onClose={() => setReceiveOpen(false)}
-        address={address ?? ""}
-        onCopy={() => showToast("Address copied")}
-        toastMsg={toastMsg}
-        toastVisible={toastVisible}
-      />
-
-      {address && vaultKey && accountId ? (
-        <SendSheet
-          visible={sendOpen}
-          onClose={() => setSendOpen(false)}
-          address={address}
-          vaultKey={vaultKey}
-          accountId={accountId}
-          nativeBalanceWei={balanceWei}
-          tokenBalances={tokenBalances}
-          onSent={() => {
-            showToast("Sent");
-            schedulePostTxRefresh();
-          }}
-        />
-      ) : null}
+      <ReceiveModal visible={receiveOpen} onClose={() => setReceiveOpen(false)} address={address ?? ""} />
 
       <Toast message={toastMsg} visible={toastVisible} />
     </Screen>

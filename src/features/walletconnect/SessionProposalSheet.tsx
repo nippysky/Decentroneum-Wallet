@@ -33,15 +33,13 @@ export function SessionProposalSheet() {
   return (
     <Modal visible={!!proposal} transparent animationType="fade" onRequestClose={reject}>
       <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
-        <Pressable onPress={reject} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+        <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFill} />
+        <Pressable style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
           <Pressable
             onPress={() => {}}
             style={{
               backgroundColor: theme.bgElevated,
               borderRadius: RADIUS.xxl,
-              borderWidth: 1,
-              borderColor: theme.border,
               padding: SPACING.xl,
               gap: SPACING.md,
             }}
@@ -52,7 +50,7 @@ export function SessionProposalSheet() {
               {proposal?.icon ? (
                 <Image source={{ uri: proposal.icon }} style={{ width: 56, height: 56, borderRadius: RADIUS.lg }} />
               ) : (
-                <View style={{ width: 56, height: 56, borderRadius: RADIUS.lg, backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.border, alignItems: "center", justifyContent: "center" }}>
+                <View style={{ width: 56, height: 56, borderRadius: RADIUS.lg, backgroundColor: theme.surface2, alignItems: "center", justifyContent: "center" }}>
                   <Ionicons name="globe-outline" size={26} color={theme.muted} />
                 </View>
               )}
@@ -69,7 +67,7 @@ export function SessionProposalSheet() {
             </T>
 
             {proposal && !proposal.supported ? (
-              <View style={{ padding: SPACING.md, borderRadius: RADIUS.md, backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.danger }}>
+              <View style={{ padding: SPACING.md, borderRadius: RADIUS.md, backgroundColor: theme.surface2 }}>
                 <T color={theme.danger} style={{ textAlign: "center" }}>
                   This app requires a network Decent Wallet doesn't support.
                 </T>
@@ -91,10 +89,10 @@ export function SessionProposalSheet() {
                         justifyContent: "space-between",
                         padding: SPACING.md,
                         borderRadius: RADIUS.md,
-                        borderWidth: 1,
-                        borderColor: selected ? theme.accent : theme.border,
-                        backgroundColor: theme.bg,
-                        opacity: pressed ? 0.9 : 1,
+                        borderWidth: selected ? 1.5 : 0,
+                        borderColor: theme.accent,
+                        backgroundColor: theme.surface2,
+                        opacity: pressed ? 0.7 : 1,
                       })}
                     >
                       <View>
@@ -111,7 +109,8 @@ export function SessionProposalSheet() {
             )}
 
             <Button
-              title={busy ? "Connecting…" : "Connect"}
+              title="Connect"
+              loading={busy}
               disabled={busy || !proposal?.supported || !chosenAccount}
               onPress={async () => {
                 if (!chosenAccount) return;

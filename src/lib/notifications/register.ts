@@ -11,6 +11,7 @@ import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
 import { getSigner } from "@/src/lib/chain/wallet";
+import { fetchWithTimeout, withTimeoutOr } from "@/src/lib/net/http";
 
 // REPLACE once server/ is deployed (see server/README.md).
 export const PUSH_SERVER_URL = "https://push.decentroneum.com";
@@ -28,8 +29,14 @@ function buildRegistrationMessage(address: string, pushToken: string, timestamp:
 export async function getExpoPushToken(): Promise<string | null> {
   try {
     const projectId = (Constants.expoConfig?.extra as any)?.eas?.projectId;
-    const token = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
-    return token.data;
+    // This call reaches out to Expo's servers internally, so it needs a
+    // ceiling too — otherwise it can hang the caller on a bad network.
+    const token = await withTimeoutOr(
+      Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined),
+      null as any,
+      8000
+    );
+    return token?.data ?? null;
   } catch {
     return null; // simulator, no EAS project configured yet, etc. — non-fatal
   }
@@ -48,10 +55,11 @@ export async function registerAddressForPush(opts: { address: string; vaultKey: 
     const signer = getSigner(mnemonic);
     const signature = await signer.signMessage(message);
 
-    await fetch(`${PUSH_SERVER_URL}/register`, {
+    await fetchWithTimeout(`${PUSH_SERVER_URL}/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ address: opts.address, pushToken, platform: Platform.OS, timestamp, signature }),
+      timeoutMs: 8000,
     });
   } catch {
     // No backend deployed yet, offline, etc. — the client-side watcher in
@@ -59,13 +67,31 @@ export async function registerAddressForPush(opts: { address: string; vaultKey: 
   }
 }
 
-export async function unregisterPush(pushToken: string): Promise<void> {
+/**
+ * Deregisters this device from server-side push. Pass `address` to remove
+ * just that one account's registration (e.g. when a single account is
+ * removed); omit it to clear every registration for this device's push
+ * token (full device erase).
+ */
+export async function unregisterPush(pushToken: string, address?: string): Promise<void> {
   try {
-    await fetch(`${PUSH_SERVER_URL}/unregister`, {
+    await fetchWithTimeout(`${PUSH_SERVER_URL}/unregister`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pushToken }),
+      body: JSON.stringify(address ? { pushToken, address } : { pushToken }),
+      timeoutMs: 8000,
     });
+  } catch {
+    // best effort
+  }
+}
+
+/** Best-effort: looks up this device's current push token and deregisters just `address`. */
+export async function unregisterAddressForPush(address: string): Promise<void> {
+  try {
+    const pushToken = await getExpoPushToken();
+    if (!pushToken) return;
+    await unregisterPush(pushToken, address);
   } catch {
     // best effort
   }

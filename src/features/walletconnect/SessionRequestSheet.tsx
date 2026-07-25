@@ -20,6 +20,7 @@ import { useWalletConnect } from "@/src/state/walletconnect";
 import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
 import { estimateFees, getSigner, normalizeDappTx } from "@/src/lib/chain/wallet";
+import { notifyLocal } from "@/src/lib/notifications/local";
 
 function shortAddr(a: string) {
   return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "";
@@ -133,6 +134,11 @@ export function SessionRequestSheet() {
         const tx: ethers.TransactionRequest = { ...txPreview, from: signerAccount.address, chainId: ELECTRONEUM.chainId };
         const resp = await signer.sendTransaction(tx);
         await respondResult(resp.hash);
+        notifyLocal({
+          title: `${ELECTRONEUM.symbol} sent`,
+          body: `Transaction to ${request.dappName ?? request.dappUrl ?? "connected app"} sent successfully`,
+          data: { accountId: signerAccount.id, route: "/(tabs)/wallet", kind: "sent" },
+        }).catch(() => {});
         return;
       }
 
@@ -165,15 +171,13 @@ export function SessionRequestSheet() {
   return (
     <Modal visible transparent animationType="fade" onRequestClose={reject}>
       <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
-        <Pressable onPress={reject} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+        <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFill} />
+        <Pressable style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
           <Pressable
             onPress={() => {}}
             style={{
               backgroundColor: theme.bgElevated,
               borderRadius: RADIUS.xxl,
-              borderWidth: 1,
-              borderColor: theme.border,
               padding: SPACING.xl,
               gap: SPACING.md,
             }}
@@ -181,7 +185,7 @@ export function SessionRequestSheet() {
             <DragHandle />
 
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+              <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
                 {isTx ? "Confirm transaction" : "Signature request"}
               </T>
               <Pressable onPress={reject} style={{ padding: 8 }}>
@@ -197,7 +201,7 @@ export function SessionRequestSheet() {
             </View>
 
             {signerAccount ? (
-              <View style={{ padding: SPACING.md, borderRadius: RADIUS.md, backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.border }}>
+              <View style={{ padding: SPACING.md, borderRadius: RADIUS.md, backgroundColor: theme.surface2 }}>
                 <T variant="caption" color={theme.muted}>Signing with</T>
                 <T weight="semibold">{signerAccount.label} · {shortAddr(signerAccount.address)}</T>
               </View>
@@ -223,7 +227,7 @@ export function SessionRequestSheet() {
             ) : null}
 
             {(isPersonalSign || isTypedData) ? (
-              <View style={{ padding: SPACING.md, borderRadius: RADIUS.md, backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.border, maxHeight: 160 }}>
+              <View style={{ padding: SPACING.md, borderRadius: RADIUS.md, backgroundColor: theme.surface2, maxHeight: 160 }}>
                 <T variant="caption" color={theme.muted}>Message</T>
                 <T weight="semibold" numberOfLines={6} style={{ marginTop: 4 }}>
                   {isTypedData ? "Structured data (EIP-712)" : messagePreview ?? "(binary data)"}
@@ -233,7 +237,7 @@ export function SessionRequestSheet() {
 
             {err ? <T color={theme.danger}>{err}</T> : null}
 
-            <Button title={busy ? "Confirming…" : "Approve"} disabled={busy || !signerAccount} onPress={approve} />
+            <Button title="Approve" loading={busy} disabled={!signerAccount} onPress={approve} />
             <Button title="Reject" variant="outline" disabled={busy} onPress={reject} />
           </Pressable>
         </Pressable>

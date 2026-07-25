@@ -78,7 +78,7 @@ export function startTxWatcher(opts: {
               await notifyLocal({
                 title: `${ELECTRONEUM.symbol} received`,
                 body: `${acc.label}: +${prettyAmount(delta, ELECTRONEUM.decimals)} ${ELECTRONEUM.symbol}`,
-                data: { accountId: acc.id, kind: "native" },
+                data: { accountId: acc.id, kind: "native", route: "/(tabs)/wallet" },
               });
             }
           }
@@ -100,7 +100,7 @@ export function startTxWatcher(opts: {
                 await notifyLocal({
                   title: `${t.symbol} received`,
                   body: `${acc.label}: +${prettyAmount(delta, t.decimals)} ${t.symbol}`,
-                  data: { accountId: acc.id, kind: "token", token: t.address },
+                  data: { accountId: acc.id, kind: "token", token: t.address, route: "/(tabs)/wallet" },
                 });
               }
             }

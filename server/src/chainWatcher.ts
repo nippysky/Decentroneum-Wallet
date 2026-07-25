@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { config } from "./config";
 import { getLastProcessedBlock, getPushTokensForAddress, markSent, setLastProcessedBlock, wasAlreadySent } from "./db";
 import { sendPushNotifications, PushMessage } from "./expoPush";
+import { getTrackedTokens } from "./tokenRegistry";
 
 // ---------------------------------------------------------------------------
 // Live path: one persistent WebSocket connection to the RPC node. ethers'
@@ -170,8 +171,9 @@ async function scanBlockRange(fromBlock: number, toBlock: number): Promise<void>
     }
   }
 
-  if (config.trackedTokens.length > 0) {
-    for (const tokenAddress of config.trackedTokens) {
+  const trackedForBackfill = getTrackedTokens();
+  if (trackedForBackfill.length > 0) {
+    for (const tokenAddress of trackedForBackfill) {
       try {
         const logs = await httpProvider.getLogs({ address: tokenAddress, topics: [TRANSFER_TOPIC], fromBlock, toBlock });
         for (const log of logs) handleTokenLog(log, outbox);
@@ -284,7 +286,7 @@ async function connect(): Promise<void> {
       onNewBlock(blockNumber).catch((err) => console.error("[watcher] onNewBlock error:", err));
     });
 
-    for (const tokenAddress of config.trackedTokens) {
+    for (const tokenAddress of getTrackedTokens()) {
       provider.on({ address: tokenAddress, topics: [TRANSFER_TOPIC] }, (log: ethers.Log) => {
         onTokenLog(log).catch((err) => console.error("[watcher] onTokenLog error:", err));
       });

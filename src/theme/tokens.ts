@@ -25,6 +25,17 @@ export type Theme = {
   shadow: string;
 };
 
+// Light mode does NOT use the neon mark color (#4DEE54) as a UI accent —
+// full-brightness neon reads loud/plasticky against a light background (it
+// only "pops" correctly against dark ink, which is why the brand mark itself
+// is neon-on-dark or dark-on-neon, never neon-on-white). For light-mode UI
+// accents (buttons, progress indicators, focus states, positive amounts),
+// use a deep shade of the same brand hue instead — same family, same
+// identity, just tuned for the surface it sits on. Neon is reserved for dark
+// mode and the literal brand mark (BRAND.neon below), never used as a light
+// mode accent color.
+const LIGHT_ACCENT = "#1B7A3B";
+
 export const light: Theme = {
   bg: "#FAF7F2",
   bgElevated: "#FFFFFF",
@@ -34,11 +45,11 @@ export const light: Theme = {
   muted: "#6B7280",
   border: "#E6DED5",
   card: "#FFFFFF",
-  primary: "#0B1220",
-  accent: "#4DEE54",
-  positive: "#4DEE54",
+  primary: "#060807",
+  accent: LIGHT_ACCENT,
+  positive: LIGHT_ACCENT,
   negative: "#DC2626",
-  success: "#4DEE54",
+  success: LIGHT_ACCENT,
   danger: "#DC2626",
   warning: "#D97706",
   overlay: "rgba(11,18,32,0.45)",
@@ -72,15 +83,21 @@ export const BRAND = {
   ink: "#060807",
 } as const;
 
+// Bumped up for a more spacious, premium feel — the old scale packed too
+// tightly (this is a deliberate, considered increase, not a random bump).
 export const SPACING = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 28,
-  xxxl: 40,
+  xs: 6,
+  sm: 10,
+  md: 16,
+  lg: 22,
+  xl: 28,
+  xxl: 36,
+  xxxl: 52,
 } as const;
+
+// Standard horizontal screen-edge padding — use this instead of hardcoding
+// 20/24 per screen, so every screen gets the same breathing room.
+export const SCREEN_PADDING = 24;
 
 export const RADIUS = {
   sm: 10,

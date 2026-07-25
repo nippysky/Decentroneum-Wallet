@@ -1,12 +1,6 @@
 // app/(onboarding)/import.tsx
 import React, { useMemo, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  TextInput,
-  View,
-} from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ethers } from "ethers";
@@ -19,6 +13,7 @@ import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
 import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import { useTheme } from "@/src/theme/ThemeProvider";
+import { SPACING } from "@/src/theme/tokens";
 
 function normalizePhrase(raw: string) {
   return raw
@@ -47,13 +42,6 @@ export default function ImportWallet() {
   const looksLikeMnemonic = words === 12 || words === 24;
   const canContinue = looksLikeMnemonic && !busy;
 
-  // ✅ Android: prevent title clipping with explicit lineHeight + font padding
-  const TITLE_SIZE = 34;
-  const TITLE_LINE_HEIGHT = Platform.OS === "android" ? 42 : 38;
-
-  const SUBTITLE_SIZE = 16;
-  const SUBTITLE_LINE_HEIGHT = Platform.OS === "android" ? 24 : 22;
-
   const onContinue = async () => {
     if (busy) return;
 
@@ -74,13 +62,8 @@ export default function ImportWallet() {
     try {
       setBusy(true);
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
       ethers.HDNodeWallet.fromPhrase(cleaned);
-
-      router.push({
-        pathname: "/(onboarding)/passcode",
-        params: { mnemonic: cleaned },
-      });
+      router.push({ pathname: "/(onboarding)/passcode", params: { mnemonic: cleaned } });
     } catch {
       setError("That recovery phrase doesn’t look valid. Check spelling and word order.");
     } finally {
@@ -95,215 +78,131 @@ export default function ImportWallet() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
       >
-        <View style={{ flex: 1, gap: 14 }}>
-          {/* Top row */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          {/* Top row — single way back, no duplicate button at the bottom */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.md }}>
             <Pressable
               onPress={() => router.back()}
-              style={({ pressed }) => ({
-                width: 44,
-                height: 44,
-                borderRadius: 16,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: theme.card,
-                borderWidth: 1,
-                borderColor: theme.border,
-                opacity: pressed ? 0.85 : 1,
-              })}
+              hitSlop={10}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
               accessibilityRole="button"
               accessibilityLabel="Back"
             >
-              <Ionicons name="chevron-back" size={20} color={theme.text} />
+              <Ionicons name="chevron-back" size={24} color={theme.text} />
             </Pressable>
             <View style={{ flex: 1 }}>
               <OnboardingProgress step={0} total={2} />
             </View>
           </View>
 
-          {/* Title */}
-          <View style={{ gap: 6 }}>
-            <T
-              variant="h2"
-              weight="bold"
-              style={{
-                fontSize: TITLE_SIZE,
-                lineHeight: TITLE_LINE_HEIGHT,
-                letterSpacing: -0.6,
-                ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
-              }}
-            >
-              Import wallet
-            </T>
+          <View style={{ height: SPACING.xxl }} />
 
-            <T
-              color={theme.muted}
-              style={{
-                fontSize: SUBTITLE_SIZE,
-                lineHeight: SUBTITLE_LINE_HEIGHT,
-                ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
-              }}
-            >
-              Paste your recovery phrase. Separate words with{" "}
-              <T weight="bold" style={{ color: theme.text }}>
-                spaces
-              </T>
-              .
+          <T weight="bold" style={{ fontSize: 40, lineHeight: 46, letterSpacing: -1.2 }}>
+            Import wallet
+          </T>
+
+          <View style={{ height: SPACING.sm }} />
+
+          <T color={theme.muted} style={{ fontSize: 17, lineHeight: 24 }}>
+            Paste your 12 or 24-word recovery phrase.
+          </T>
+
+          <View style={{ height: SPACING.xxl }} />
+
+          {/* Input — quiet chrome, the content does the talking */}
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <T variant="caption" weight="semibold" color={theme.muted} style={{ letterSpacing: 0.3 }}>
+              RECOVERY PHRASE
             </T>
+            <Pressable
+              onPress={async () => {
+                const s = await Clipboard.getStringAsync();
+                if (s.trim()) {
+                  setPhrase(s.trim());
+                  setError(null);
+                }
+              }}
+              disabled={busy}
+              hitSlop={8}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+            >
+              <T variant="caption" weight="semibold" color={theme.accent}>
+                Paste
+              </T>
+            </Pressable>
           </View>
 
-          {/* Info card */}
+          <View style={{ height: SPACING.sm }} />
+
           <View
             style={{
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: theme.border,
+              borderRadius: 20,
+              borderWidth: 1.5,
+              borderColor: looksLikeMnemonic ? theme.accent : theme.border,
               backgroundColor: theme.card,
-              padding: 16,
-              flexDirection: "row",
-              gap: 12,
-              alignItems: "flex-start",
+              padding: SPACING.lg,
             }}
           >
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 14,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: theme.bg,
-                borderWidth: 1,
-                borderColor: theme.border,
+            <TextInput
+              value={phrase}
+              onChangeText={(t) => {
+                setPhrase(t);
+                setError(null);
               }}
-            >
-              <Ionicons name="shield-checkmark-outline" size={18} color={theme.text} />
-            </View>
-
-            <View style={{ flex: 1, gap: 2 }}>
-              <T weight="semibold">Keep it private</T>
-              <T
-                variant="caption"
-                color={theme.muted}
-                style={{
-                  lineHeight: Platform.OS === "android" ? 19 : 18,
-                  ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
-                }}
-              >
-                Decent Wallet never uploads your phrase. Anyone with it can access your funds.
-              </T>
-            </View>
+              placeholder="word one, word two, word three…"
+              placeholderTextColor={theme.muted}
+              style={{
+                color: theme.text,
+                fontSize: 17,
+                lineHeight: 26,
+                minHeight: 128,
+                textAlignVertical: "top",
+              }}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              keyboardAppearance={theme.bg === "#060807" ? "dark" : "default"}
+              selectionColor={theme.accent}
+              editable={!busy}
+            />
           </View>
 
-          {/* Input */}
-          <View style={{ gap: 10 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T weight="semibold">Recovery phrase</T>
-              <Pressable
-                onPress={async () => {
-                  const s = await Clipboard.getStringAsync();
-                  if (s.trim()) {
-                    setPhrase(s.trim());
-                    setError(null);
-                  }
-                }}
-                disabled={busy}
-                style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, padding: 6, opacity: pressed ? 0.8 : 1 })}
-              >
-                <Ionicons name="clipboard-outline" size={14} color={theme.muted} />
-                <T variant="caption" weight="semibold" color={theme.muted}>
-                  Paste
+          <View style={{ height: SPACING.sm }} />
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 }}>
+            {words > 0 ? (
+              <>
+                <Ionicons
+                  name={looksLikeMnemonic ? "checkmark-circle" : "ellipse-outline"}
+                  size={13}
+                  color={looksLikeMnemonic ? theme.accent : theme.muted}
+                />
+                <T variant="caption" color={looksLikeMnemonic ? theme.accent : theme.muted}>
+                  {words} {words === 1 ? "word" : "words"}
                 </T>
-              </Pressable>
-            </View>
-
-            <View
-              style={{
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.card,
-                padding: 14,
-              }}
-            >
-              <TextInput
-                value={phrase}
-                onChangeText={(t) => {
-                  setPhrase(t);
-                  setError(null);
-                }}
-                placeholder="twelve words separated by spaces"
-                placeholderTextColor={theme.muted}
-                style={{
-                  color: theme.text,
-                  fontSize: 16,
-                  lineHeight: Platform.OS === "android" ? 24 : 22,
-                  minHeight: 120,
-                  textAlignVertical: "top",
-                  ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
-                }}
-                multiline
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-                keyboardAppearance={(theme as any).bg === "#060807" ? "dark" : "default"}
-                selectionColor={theme.accent}
-                editable={!busy}
-              />
-
-              <View style={{ height: 12 }} />
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <T variant="caption" color={theme.muted}>
-                  Word count
-                </T>
-
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 99,
-                      backgroundColor: looksLikeMnemonic ? theme.success : theme.border,
-                    }}
-                  />
-                  <T variant="caption" color={theme.muted}>
-                    {words}
-                  </T>
-                </View>
-              </View>
-            </View>
-
-            {error ? (
-              <T color={theme.danger} style={{ marginTop: 2 }}>
-                {error}
-              </T>
+              </>
             ) : null}
           </View>
 
-          {/* Bottom actions */}
-          <View style={{ marginTop: "auto", gap: 12, paddingBottom: Math.max(insets.bottom, 14) }}>
-            <Button title={busy ? "Checking…" : "Continue"} disabled={!canContinue} onPress={onContinue} />
-            <Button title="Back" variant="outline" disabled={busy} onPress={() => router.back()} />
+          {error ? (
+            <>
+              <View style={{ height: SPACING.sm }} />
+              <T variant="caption" color={theme.danger}>
+                {error}
+              </T>
+            </>
+          ) : null}
 
-            <T
-              variant="caption"
-              color={theme.muted}
-              style={{
-                textAlign: "center",
-                lineHeight: Platform.OS === "android" ? 19 : 18,
-                ...(Platform.OS === "android" ? { includeFontPadding: true } : null),
-              }}
-            >
-              Next: create a 6-digit passcode to encrypt your wallet on this device.
+          {/* Private-by-design note — one quiet line, no card, no icon box */}
+          <View style={{ marginTop: "auto", paddingTop: SPACING.xl }}>
+            <T variant="caption" color={theme.muted} style={{ textAlign: "center", marginBottom: SPACING.lg }}>
+              Never shared, never uploaded — stays on this device.
             </T>
+            <Button title="Continue" loading={busy} disabled={!canContinue} onPress={onContinue} />
           </View>
+
+          <View style={{ height: Math.max(insets.bottom, SPACING.md) }} />
         </View>
       </KeyboardAvoidingView>
     </Screen>

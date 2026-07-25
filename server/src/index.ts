@@ -1,6 +1,7 @@
 import { config } from "./config";
 import { createServer } from "./server";
 import { startChainWatcher } from "./chainWatcher";
+import { startTokenRegistry, stopTokenRegistry } from "./tokenRegistry";
 
 // One bad response body, one flaky network error deep in a promise chain,
 // and a naive Node process just dies — taking down live delivery until
@@ -22,13 +23,23 @@ const httpServer = app.listen(config.port, () => {
   console.log(`[server] listening on :${config.port}`);
 });
 
-const stopWatcher = startChainWatcher();
+// Load the published token registry before the watcher starts: the initial
+// backfill and the WebSocket log subscriptions both read the tracked-token
+// list at startup, so fetching it first avoids a window where a listed token
+// is silently unwatched until the next refresh.
+let stopWatcher: () => void = () => {};
+startTokenRegistry()
+  .catch((err) => console.error("[server] token registry failed to load:", err))
+  .finally(() => {
+    stopWatcher = startChainWatcher();
+  });
 
 let shuttingDown = false;
 function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\n[server] received ${signal} — shutting down…`);
+  stopTokenRegistry();
   stopWatcher();
   httpServer.close(() => process.exit(0));
   // Don't hang forever waiting for in-flight requests to drain.

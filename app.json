@@ -10,7 +10,6 @@
     "primaryColor": "#4DEE54",
     "backgroundColor": "#060807",
     "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem — send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
-    "owner": "decentroneum",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.decentroneum.wallet",
@@ -29,21 +28,42 @@
       },
       "infoPlist": {
         "NSFaceIDUsageDescription": "Decent Wallet uses Face ID to unlock your wallet and confirm transactions without re-entering your passcode.",
-        "NSCameraUsageDescription": "Decent Wallet uses the camera to scan QR codes for wallet addresses and dApp connections.",
-        "NSPhotoLibraryAddUsageDescription": "Decent Wallet can save QR codes and receipts to your photo library when you choose to.",
+        "NSCameraUsageDescription": "Decent Wallet uses the camera only to scan WalletConnect QR codes so you can connect to apps shown on another screen. Nothing is recorded or uploaded.",
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       },
       "entitlements": {
         "com.apple.developer.associated-domains": [
           "applinks:decentroneum.com",
           "applinks:app.decentroneum.com"
         ]
+      },
+      "privacyManifests": {
+        "NSPrivacyTracking": false,
+        "NSPrivacyTrackingDomains": [],
+        "NSPrivacyCollectedDataTypes": [],
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+            "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]
+          }
+        ]
       }
     },
     "android": {
       "package": "com.decentroneum.wallet",
       "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
@@ -53,20 +73,34 @@
       "predictiveBackGestureEnabled": true,
       "permissions": [
         "CAMERA",
+        "android.permission.CAMERA",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
         "POST_NOTIFICATIONS",
-        "VIBRATE"
+        "VIBRATE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ],
       "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "decentroneum.com", "pathPrefix": "/wc" },
-            { "scheme": "https", "host": "app.decentroneum.com", "pathPrefix": "/wc" }
+            {
+              "scheme": "https",
+              "host": "decentroneum.com",
+              "pathPrefix": "/wc"
+            },
+            {
+              "scheme": "https",
+              "host": "app.decentroneum.com",
+              "pathPrefix": "/wc"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -103,7 +137,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Decent Wallet uses the camera to scan wallet addresses and dApp connection QR codes.",
+          "cameraPermission": "Decent Wallet uses the camera only to scan WalletConnect QR codes so you can connect to apps shown on another screen. Nothing is recorded or uploaded.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -125,8 +159,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "e6292d8e-cc92-4c2d-9221-4949b04f981d"
       }
-    }
+    },
+    "owner": "nippysky"
   }
 }

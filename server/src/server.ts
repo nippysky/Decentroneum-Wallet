@@ -4,6 +4,7 @@ import { ethers } from "ethers";
 import { config } from "./config";
 import { addRegistration, removeRegistration } from "./db";
 import { verifyRegistrationProof } from "./verify";
+import { tokenRegistryStatus } from "./tokenRegistry";
 
 export function createServer() {
   const app = express();
@@ -11,7 +12,13 @@ export function createServer() {
   app.use(express.json());
 
   app.get("/health", (_req, res) => {
-    res.json({ ok: true, service: "decent-wallet-push-server" });
+    // Includes the live token-registry state so you can confirm the watcher
+    // is tracking the same tokens the wallet displays — without SSH-ing in.
+    res.json({
+      ok: true,
+      service: "decent-wallet-push-server",
+      tokenRegistry: tokenRegistryStatus(),
+    });
   });
 
   /**
@@ -41,6 +48,7 @@ export function createServer() {
     }
 
     addRegistration(address, pushToken, typeof platform === "string" ? platform : undefined);
+    console.log(`[server] registered ${address} (${platform ?? "unknown platform"}) for push`);
     res.json({ ok: true });
   });
 
@@ -50,6 +58,7 @@ export function createServer() {
       return res.status(400).json({ ok: false, error: "Missing pushToken" });
     }
     removeRegistration(pushToken, typeof address === "string" ? address : undefined);
+    console.log(`[server] unregistered a push token${address ? ` for ${address}` : ""}`);
     res.json({ ok: true });
   });
 

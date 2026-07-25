@@ -3,7 +3,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { FONT } from "@/src/theme/typography";
 import * as Haptics from "expo-haptics";
 import React from "react";
-import { Platform, Pressable, Text, TextStyle, ViewStyle } from "react-native";
+import { ActivityIndicator, Platform, Pressable, Text, TextStyle, ViewStyle } from "react-native";
 
 type Variant = "primary" | "outline" | "ghost";
 
@@ -12,22 +12,27 @@ export function Button({
   onPress,
   variant = "primary",
   disabled,
+  loading,
   style,
 }: {
   title: string;
   onPress: () => void;
   variant?: Variant;
   disabled?: boolean;
+  /** Shows a small spinner in place of the label instead of re-labeling the
+   * button (e.g. "Encrypting…") — keeps the button's meaning stable and
+   * reads as faster/cleaner than swapping text mid-action. */
+  loading?: boolean;
   style?: ViewStyle;
 }) {
   const { theme } = useTheme();
 
   const base: ViewStyle = {
-    height: 52,
-    borderRadius: 14,
+    height: 54,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 22,
     opacity: disabled ? 0.55 : 1,
     flexDirection: "row",
     gap: 10,
@@ -81,7 +86,7 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
-      disabled={disabled}
+      disabled={disabled || loading}
       onPress={async () => {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onPress();
@@ -90,11 +95,15 @@ export function Button({
       style={({ pressed }) => [
         base,
         variants[variant],
-        pressed && !disabled ? { transform: [{ scale: 0.99 }], opacity: 0.92 } : null,
+        pressed && !disabled && !loading ? { transform: [{ scale: 0.99 }], opacity: 0.92 } : null,
         style,
       ]}
     >
-      <Text style={textStyles[variant]}>{title}</Text>
+      {loading ? (
+        <ActivityIndicator color={textStyles[variant].color as string} />
+      ) : (
+        <Text style={textStyles[variant]}>{title}</Text>
+      )}
     </Pressable>
   );
 }

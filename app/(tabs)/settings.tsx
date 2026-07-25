@@ -11,6 +11,7 @@ import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
 import { Button } from "@/src/components/Button";
 import { Toast } from "@/src/components/Toast";
+import { HoldToConfirm } from "@/src/components/HoldToConfirm";
 import { useTheme, Mode } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
@@ -18,16 +19,18 @@ import { unlockVault } from "@/src/lib/crypto/vault";
 import { AccountManager } from "@/src/features/accounts/AccountManager";
 import { ConnectionsPanel } from "@/src/features/walletconnect/ConnectionsPanel";
 import { useNotifications } from "@/src/state/notifications";
+import { useNotificationFeed } from "@/src/state/notificationsFeed";
+import { getExpoPushToken, unregisterPush } from "@/src/lib/notifications/register";
+import { fireAndForget } from "@/src/lib/net/http";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 function Card({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme();
   return (
     <View
       style={{
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: theme.border,
-        backgroundColor: theme.card,
+        borderRadius: RADIUS.xl,
+        backgroundColor: theme.surface2,
         overflow: "hidden",
       }}
     >
@@ -36,15 +39,10 @@ function Card({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Divider() {
-  const { theme } = useTheme();
-  return <View style={{ height: 1, backgroundColor: theme.border }} />;
-}
-
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   const { theme } = useTheme();
   return (
-    <View style={{ padding: 16, paddingBottom: 10 }}>
+    <View style={{ padding: SPACING.md, paddingBottom: SPACING.sm }}>
       <T weight="bold">{title}</T>
       <T variant="caption" color={theme.muted}>
         {subtitle}
@@ -59,12 +57,14 @@ function Row({
   subtitle,
   onPress,
   right,
+  danger,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle?: string;
   onPress?: () => void;
   right?: React.ReactNode;
+  danger?: boolean;
 }) {
   const { theme } = useTheme();
 
@@ -73,8 +73,8 @@ function Row({
       style={{
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: 16,
-        paddingVertical: 14,
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.sm + 2,
         gap: 12,
       }}
     >
@@ -82,19 +82,17 @@ function Row({
         style={{
           width: 36,
           height: 36,
-          borderRadius: 12,
+          borderRadius: RADIUS.md,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: theme.bg,
-          borderWidth: 1,
-          borderColor: theme.border,
         }}
       >
-        <Ionicons name={icon} size={18} color={theme.text} />
+        <Ionicons name={icon} size={18} color={danger ? theme.danger : theme.text} />
       </View>
 
-      <View style={{ flex: 1, gap: 2 }}>
-        <T weight="semibold">{title}</T>
+      <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+        <T weight="semibold" color={danger ? theme.danger : undefined}>{title}</T>
         {subtitle ? (
           <T variant="caption" color={theme.muted}>
             {subtitle}
@@ -104,8 +102,6 @@ function Row({
 
       {right ? (
         <View style={{ alignItems: "flex-end", justifyContent: "center" }}>{right}</View>
-      ) : onPress ? (
-        <Ionicons name="chevron-forward" size={18} color={theme.muted} />
       ) : null}
     </View>
   );
@@ -113,7 +109,7 @@ function Row({
   if (!onPress) return content;
 
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
       {content}
     </Pressable>
   );
@@ -145,19 +141,17 @@ function Sheet({
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: 18,
-              gap: 12,
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
+              padding: SPACING.lg,
+              gap: SPACING.sm,
             }}
           >
-            <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
               {title}
             </T>
             <T color={theme.muted}>{message}</T>
-            <View style={{ height: 6 }} />
+            <View style={{ height: SPACING.xs }} />
             <Button title={primaryText} onPress={onPrimary} />
             <Button title={secondaryText} variant="outline" onPress={onSecondary} />
           </Pressable>
@@ -228,30 +222,28 @@ function PasscodeSheet({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
       <View style={{ flex: 1 }}>
         <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-        <Pressable onPress={close} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+        <Pressable style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: 18,
-              gap: 12,
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
+              padding: SPACING.lg,
+              gap: SPACING.sm,
             }}
           >
-            <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
               {title}
             </T>
             <T color={theme.muted}>{subtitle}</T>
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+            <View style={{ flexDirection: "row", gap: 14, justifyContent: "center", marginTop: SPACING.sm }}>
               {dots(pin.length).map((filled, i) => (
                 <View
                   key={i}
                   style={{
-                    width: 12,
-                    height: 12,
+                    width: 13,
+                    height: 13,
                     borderRadius: 999,
                     backgroundColor: filled ? theme.accent : theme.border,
                   }}
@@ -259,14 +251,14 @@ function PasscodeSheet({
               ))}
             </View>
 
-            <View style={{ gap: 10, marginTop: 10 }}>
+            <View style={{ gap: SPACING.sm, marginTop: SPACING.sm }}>
               {[
                 ["1", "2", "3"],
                 ["4", "5", "6"],
                 ["7", "8", "9"],
                 ["", "0", "del"],
               ].map((row, r) => (
-                <View key={r} style={{ flexDirection: "row", gap: 10 }}>
+                <View key={r} style={{ flexDirection: "row", gap: SPACING.sm }}>
                   {row.map((k) => {
                     const isDel = k === "del";
                     const disabled = k === "";
@@ -282,16 +274,13 @@ function PasscodeSheet({
                         style={({ pressed }) => [
                           {
                             flex: 1,
-                            height: 52,
+                            height: 54,
                             borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: theme.border,
-                            backgroundColor: theme.bg,
+                            backgroundColor: pressed && !disabled ? theme.border : theme.surface2,
                             alignItems: "center",
                             justifyContent: "center",
                             opacity: disabled ? 0 : busy ? 0.6 : 1,
                           },
-                          pressed && !busy ? { opacity: 0.85 } : null,
                         ]}
                       >
                         <T weight="semibold" style={{ fontSize: 18 }}>
@@ -319,11 +308,91 @@ function PasscodeSheet({
               </View>
             ) : null}
 
-            <View style={{ height: 6 }} />
-            <Button title={busy ? "Please wait…" : confirmText} disabled={pin.length !== 6 || busy} onPress={submit} />
+            <View style={{ height: SPACING.xs }} />
+            <Button title={confirmText} loading={busy} disabled={pin.length !== 6} onPress={submit} />
             <Button title="Cancel" variant="outline" onPress={close} />
           </Pressable>
         </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+function EraseWalletSheet({
+  visible,
+  accounts,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  accounts: { id: string; label: string }[];
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { theme } = useTheme();
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? () => {} : onCancel}>
+      <View style={{ flex: 1 }}>
+        <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
+        {/* No backdrop-dismiss: this sheet is destructive, so it only
+            closes via an explicit Cancel. */}
+        <View style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+          <View
+            style={{
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
+              padding: SPACING.lg,
+              gap: SPACING.md,
+            }}
+          >
+            <View
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: RADIUS.lg,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: theme.surface2,
+              }}
+            >
+              <Ionicons name="warning-outline" size={24} color={theme.danger} />
+            </View>
+
+            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
+              Erase all wallets from this device?
+            </T>
+
+            <T color={theme.muted}>
+              This permanently deletes every account stored on this device — not just the one you&apos;re
+              currently viewing. It cannot be undone. Anything you haven&apos;t backed up with its recovery
+              phrase will be gone for good.
+            </T>
+
+            <View style={{ borderRadius: RADIUS.lg, backgroundColor: theme.surface2, padding: SPACING.md, gap: 6 }}>
+              <T variant="caption" weight="semibold" color={theme.muted}>
+                {accounts.length} account{accounts.length === 1 ? "" : "s"} will be removed
+              </T>
+              {accounts.map((a) => (
+                <T key={a.id} weight="semibold" numberOfLines={1}>
+                  {a.label}
+                </T>
+              ))}
+            </View>
+
+            <View style={{ height: SPACING.xs }} />
+
+            <HoldToConfirm
+              title={busy ? "Erasing…" : "Hold to erase everything"}
+              holdingTitle="Release to cancel"
+              disabled={busy}
+              onConfirmed={onConfirm}
+            />
+            <Button title="Cancel" variant="outline" onPress={onCancel} disabled={busy} />
+          </View>
+        </View>
       </View>
     </Modal>
   );
@@ -351,7 +420,6 @@ export default function Settings() {
   const { theme, mode, resolvedMode, setMode } = useTheme();
 
   const isUnlocked = useSession((s) => s.isUnlocked);
-  const lock = useSession((s) => s.lock);
 
   const autoLockEnabled = useSession((s) => s.autoLockEnabled);
   const setAutoLockEnabled = useSession((s) => s.setAutoLockEnabled);
@@ -363,11 +431,9 @@ export default function Settings() {
   const clearBioPin = useSession((s) => s.clearBioPin);
 
   const resetDeviceWallet = useSession((s) => s.resetDeviceWallet);
+  const accountsForErase = useAccounts((s) => s.accounts);
+  const [eraseBusy, setEraseBusy] = useState(false);
 
-  const notificationsEnabled = useNotifications((s) => s.enabled);
-  const enableNotifications = useNotifications((s) => s.enable);
-  const disableNotifications = useNotifications((s) => s.disable);
-  const [notifHelpOpen, setNotifHelpOpen] = useState(false);
 
   const [eraseOpen, setEraseOpen] = useState(false);
 
@@ -459,14 +525,14 @@ export default function Settings() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <View style={{ gap: 14 }}>
-          <T variant="h2" weight="bold">
+      <ScrollView contentContainerStyle={{ paddingBottom: SPACING.xxxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={{ gap: SPACING.xl }}>
+          <T weight="bold" style={{ fontSize: 32, lineHeight: 38, letterSpacing: -1 }}>
             Settings
           </T>
 
           {/* Accounts */}
-          <View style={{ gap: 10 }}>
+          <View style={{ gap: SPACING.sm }}>
             <View style={{ paddingHorizontal: 2 }}>
               <T weight="bold">Accounts</T>
               <T variant="caption" color={theme.muted}>
@@ -477,7 +543,7 @@ export default function Settings() {
           </View>
 
           {/* Connections */}
-          <View style={{ gap: 10 }}>
+          <View style={{ gap: SPACING.sm }}>
             <View style={{ paddingHorizontal: 2 }}>
               <T weight="bold">Connections</T>
               <T variant="caption" color={theme.muted}>
@@ -490,7 +556,6 @@ export default function Settings() {
           {/* Security */}
           <Card>
             <SectionHeader title="Security" subtitle="Protect this wallet on this device." />
-            <Divider />
 
             <Row
               icon="lock-closed-outline"
@@ -507,7 +572,6 @@ export default function Settings() {
               }
             />
 
-            <Divider />
 
             <Row
               icon="finger-print-outline"
@@ -527,64 +591,18 @@ export default function Settings() {
               }
             />
 
-            <Divider />
 
             <Row icon="key-outline" title="View recovery phrase" subtitle="Requires passcode" onPress={() => setViewPhrasePending(true)} />
-
-            <Divider />
-
-            <Row
-              icon="shield-outline"
-              title="Lock now"
-              subtitle="Return to unlock screen"
-              onPress={() => {
-                lock();
-                router.replace("/unlock");
-              }}
-            />
-          </Card>
-
-          {/* Notifications */}
-          <Card>
-            <SectionHeader title="Notifications" subtitle="Get notified about wallet activity." />
-            <Divider />
-
-            <Row
-              icon="notifications-outline"
-              title="Funds received"
-              subtitle={
-                notificationsEnabled
-                  ? "You'll be notified when you receive ETN or tokens"
-                  : "Enable to get notified on incoming funds"
-              }
-              right={
-                <Switch
-                  value={notificationsEnabled}
-                  onValueChange={async (v) => {
-                    if (v) {
-                      const granted = await enableNotifications();
-                      if (!granted) setNotifHelpOpen(true);
-                    } else {
-                      await disableNotifications();
-                    }
-                  }}
-                  trackColor={{ false: theme.border, true: theme.accent }}
-                  thumbColor={theme.card}
-                  ios_backgroundColor={theme.border}
-                />
-              }
-            />
           </Card>
 
           {/* Appearance */}
           <Card>
             <SectionHeader title="Appearance" subtitle="Choose your theme preference." />
-            <Divider />
 
             <Row icon="color-palette-outline" title="Theme" subtitle={`Currently: ${themeSubtitle}`} />
 
-            <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 16 }}>
-              <View style={{ flexDirection: "row", gap: 10 }}>
+            <View style={{ paddingHorizontal: SPACING.md, paddingTop: SPACING.sm, paddingBottom: SPACING.md }}>
+              <View style={{ flexDirection: "row", gap: SPACING.sm, backgroundColor: theme.bg, borderRadius: RADIUS.lg, padding: 4 }}>
                 {(["system", "light", "dark"] as Mode[]).map((m) => {
                   const active = mode === m;
                   const label = m === "system" ? "System" : m === "light" ? "Light" : "Dark";
@@ -595,17 +613,15 @@ export default function Settings() {
                       onPress={() => setMode(m)}
                       style={({ pressed }) => ({
                         flex: 1,
-                        height: 44,
-                        borderRadius: 14,
+                        height: 40,
+                        borderRadius: RADIUS.md,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: active ? theme.bg : theme.card,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        opacity: pressed ? 0.9 : 1,
+                        backgroundColor: active ? theme.surface2 : "transparent",
+                        opacity: pressed ? 0.7 : 1,
                       })}
                     >
-                      <T weight={active ? "semibold" : "medium"}>{label}</T>
+                      <T weight={active ? "semibold" : "medium"} style={{ fontSize: 14 }}>{label}</T>
                     </Pressable>
                   );
                 })}
@@ -613,44 +629,64 @@ export default function Settings() {
             </View>
           </Card>
 
-          {/* Device */}
-          <Card>
-            <SectionHeader title="Device" subtitle="This affects only this phone." />
-            <Divider />
-            <Row
-              icon="trash-outline"
-              title="Erase wallet from this device"
-              subtitle="Removes your encrypted vault and logs you out"
-              onPress={() => setEraseOpen(true)}
-            />
-          </Card>
+          {/* Erase — deliberately NOT a card. It's a single quiet red line;
+              all the weight (warnings, account count, hold-to-confirm)
+              lives in the modal it opens, so this destructive action stops
+              dominating the screen. */}
+          <Pressable
+            onPress={() => setEraseOpen(true)}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              paddingVertical: SPACING.md,
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Ionicons name="trash-outline" size={16} color={theme.danger} />
+            <T weight="semibold" color={theme.danger}>
+              Erase wallet
+            </T>
+          </Pressable>
 
           {/* About */}
           <Card>
             <SectionHeader title="About" subtitle="Decent Wallet by Decentroneum." />
-            <Divider />
             <Row
               icon="globe-outline"
               title="decentroneum.com"
               subtitle="Web3 platform for the Electroneum ecosystem"
               onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://decentroneum.com" } })}
             />
-            <Divider />
             <Row
               icon="logo-twitter"
               title="Follow on X"
               subtitle="@decentroneum"
               onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://x.com/decentroneum" } })}
             />
-            <Divider />
             <Row
               icon="paper-plane-outline"
               title="Join Telegram"
               subtitle="Community & support"
               onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://t.me/DecentroneumGroupChat" } })}
             />
-            <Divider />
             <Row icon="information-circle-outline" title="Version" subtitle="2.0.0" />
+          </Card>
+
+          {/* Legal */}
+          <Card>
+            <SectionHeader title="Legal" subtitle="Required reading before you send funds." />
+            <Row
+              icon="shield-checkmark-outline"
+              title="Privacy Policy"
+              onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://decentroneum.com/privacy" } })}
+            />
+            <Row
+              icon="document-text-outline"
+              title="Terms of Service"
+              onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://decentroneum.com/terms" } })}
+            />
           </Card>
         </View>
       </ScrollView>
@@ -680,20 +716,18 @@ export default function Settings() {
       <Modal visible={phraseOpen} transparent animationType="fade" onRequestClose={closePhrase}>
         <View style={{ flex: 1 }}>
           <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-          <Pressable onPress={closePhrase} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+          <Pressable style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
             <Pressable
               onPress={() => {}}
               style={{
-                backgroundColor: theme.card,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: theme.border,
-                padding: 18,
-                gap: 12,
+                backgroundColor: theme.bgElevated,
+                borderRadius: RADIUS.xxl,
+                padding: SPACING.lg,
+                gap: SPACING.sm,
               }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+                <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
                   Recovery phrase
                 </T>
                 <Pressable onPress={closePhrase} style={{ padding: 8 }}>
@@ -707,11 +741,9 @@ export default function Settings() {
 
               <View
                 style={{
-                  padding: 14,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.bg,
+                  padding: SPACING.md,
+                  borderRadius: RADIUS.lg,
+                  backgroundColor: theme.surface2,
                   minHeight: 84,
                   justifyContent: "center",
                 }}
@@ -777,30 +809,41 @@ export default function Settings() {
         onSecondary={() => setBioHelpOpen(false)}
       />
 
-      {/* Notification permission help */}
-      <Sheet
-        visible={notifHelpOpen}
-        title="Notifications are off"
-        message="Decent Wallet needs permission from iOS/Android to notify you about incoming funds. Enable notifications for Decent Wallet in your device Settings, then try again."
-        primaryText="OK"
-        secondaryText="Cancel"
-        onPrimary={() => setNotifHelpOpen(false)}
-        onSecondary={() => setNotifHelpOpen(false)}
-      />
-
-      {/* Erase sheet */}
-      <Sheet
+      {/* Erase sheet — the one truly irreversible action in Settings, so it
+          gets the same hold-to-confirm gesture as an on-chain broadcast,
+          plus an explicit account count instead of vague "your wallet data"
+          copy. */}
+      <EraseWalletSheet
         visible={eraseOpen}
-        title="Erase wallet?"
-        message="This removes your wallet data from this device. You can restore later using your recovery phrase. This cannot be undone."
-        primaryText="Erase from device"
-        secondaryText="Cancel"
-        onPrimary={async () => {
-          setEraseOpen(false);
-          await resetDeviceWallet();
-          router.replace("/(onboarding)/welcome");
+        accounts={accountsForErase}
+        busy={eraseBusy}
+        onCancel={() => (eraseBusy ? null : setEraseOpen(false))}
+        onConfirm={async () => {
+          setEraseBusy(true);
+          try {
+            // Best-effort server-side push deregistration. Deliberately
+            // fire-and-forget: erasing the wallet is a *local* operation
+            // and must never be blocked by (or hang on) an unreachable
+            // push server. This was previously awaited, which meant a
+            // down/unreachable server left the erase spinning forever.
+            fireAndForget(
+              getExpoPushToken().then((token) => (token ? unregisterPush(token) : null))
+            );
+
+            await useNotifications.getState().disable().catch(() => {});
+            await useNotificationFeed.getState().clear().catch(() => {});
+            await resetDeviceWallet();
+            setEraseOpen(false);
+            router.replace("/(onboarding)/welcome");
+          } catch {
+            // Local wipe failed — surface it instead of leaving the user
+            // staring at a stuck spinner.
+            setEraseOpen(false);
+            showToast("Couldn't erase wallet. Please try again.");
+          } finally {
+            setEraseBusy(false);
+          }
         }}
-        onSecondary={() => setEraseOpen(false)}
       />
 
       {/* ✅ Global toast only when phrase modal is NOT open (prevents duplicates) */}

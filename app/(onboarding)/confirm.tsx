@@ -6,7 +6,7 @@ import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 function shuffle<T>(arr: T[]) {
@@ -31,6 +31,7 @@ export default function Confirm() {
 
   const correctSoFar = picked.every((p, i) => p.w === words[i]);
   const complete = picked.length === words.length && correctSoFar;
+  const hasMistake = picked.length > 0 && !correctSoFar;
 
   const pick = async (id: string) => {
     const item = available.find((x) => x.id === id);
@@ -50,23 +51,30 @@ export default function Confirm() {
 
   return (
     <Screen>
-      <View style={{ gap: SPACING.lg }}>
+      <View style={{ flex: 1 }}>
         <OnboardingProgress step={1} total={3} />
 
-        <View style={{ gap: 6 }}>
-          <T variant="h2" weight="bold">Confirm your phrase</T>
-          <T color={theme.muted}>Tap the words in the correct order.</T>
-        </View>
+        <View style={{ height: SPACING.xxl }} />
 
-        {/* Selected */}
+        <T weight="bold" style={{ fontSize: 34, lineHeight: 40, letterSpacing: -1 }}>
+          Confirm your phrase
+        </T>
+
+        <View style={{ height: SPACING.sm }} />
+
+        <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23 }}>
+          Tap the words in the correct order.
+        </T>
+
+        <View style={{ height: SPACING.xl }} />
+
+        {/* Selected — quiet underline area, not a bordered card */}
         <View
           style={{
-            padding: SPACING.lg,
-            borderRadius: RADIUS.xl,
-            borderWidth: 1,
-            borderColor: correctSoFar ? theme.border : theme.danger,
-            backgroundColor: theme.card,
-            minHeight: 84,
+            minHeight: 72,
+            paddingBottom: SPACING.md,
+            borderBottomWidth: 1.5,
+            borderBottomColor: hasMistake ? theme.danger : theme.border,
           }}
         >
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -74,54 +82,62 @@ export default function Confirm() {
               <T color={theme.muted}>No words selected yet.</T>
             ) : (
               picked.map((x, i) => (
-                <View
+                <Pressable
                   key={x.id}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 8,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    backgroundColor: theme.bg,
+                  onPress={() => unpick(x.id)}
+                  style={({ pressed }) => ({
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                    borderRadius: RADIUS.md,
+                    backgroundColor: theme.surface2,
                     flexDirection: "row",
-                    gap: 8,
+                    gap: 7,
                     alignItems: "center",
-                  }}
-                  onTouchEnd={() => unpick(x.id)}
+                    opacity: pressed ? 0.6 : 1,
+                  })}
                 >
                   <T variant="caption" weight="semibold" color={theme.muted}>
                     {i + 1}
                   </T>
                   <T weight="semibold">{x.w}</T>
-                </View>
+                </Pressable>
               ))
             )}
           </View>
         </View>
 
+        {hasMistake ? (
+          <>
+            <View style={{ height: SPACING.sm }} />
+            <T variant="caption" color={theme.danger}>
+              That’s not quite right — tap a word above to remove it.
+            </T>
+          </>
+        ) : null}
+
+        <View style={{ height: SPACING.xl }} />
+
         {/* Pool */}
-        <View style={{ marginTop: 4 }}>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {available.map((x) => (
-              <View
-                key={x.id}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.card,
-                }}
-                onTouchEnd={() => pick(x.id)}
-              >
-                <T weight="semibold">{x.w}</T>
-              </View>
-            ))}
-          </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {available.map((x) => (
+            <Pressable
+              key={x.id}
+              onPress={() => pick(x.id)}
+              style={({ pressed }) => ({
+                paddingHorizontal: 14,
+                paddingVertical: 11,
+                borderRadius: RADIUS.md,
+                borderWidth: 1,
+                borderColor: theme.border,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <T weight="semibold">{x.w}</T>
+            </Pressable>
+          ))}
         </View>
 
-        <View style={{ marginTop: 14, gap: 12 }}>
+        <View style={{ marginTop: "auto", paddingTop: SPACING.xl, gap: SPACING.md }}>
           <Button
             title="Continue"
             disabled={!complete}
@@ -132,11 +148,14 @@ export default function Confirm() {
               router.push({ pathname: "/(onboarding)/passcode", params: { mnemonic } });
             }}
           />
-          <Button
-            title="Start over"
-            variant="outline"
+          <Pressable
             onPress={() => router.replace("/(onboarding)/create")}
-          />
+            style={{ alignSelf: "center", padding: SPACING.md }}
+          >
+            <T variant="caption" weight="semibold" color={theme.muted}>
+              Start over
+            </T>
+          </Pressable>
         </View>
       </View>
     </Screen>

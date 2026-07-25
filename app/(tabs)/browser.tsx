@@ -10,10 +10,13 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
 import { useSession } from "@/src/state/session";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
+// Kept deliberately short. Only the D-App is listed for Decentroneum —
+// the marketing site was a near-duplicate entry that added a line without
+// adding a destination anyone needs from inside a wallet.
 const FEATURED = [
   { name: "Decentroneum D-App", url: "https://app.decentroneum.com" },
-  { name: "Decentroneum", url: "https://decentroneum.com" },
   { name: "ElectroSwap", url: "https://electroswap.io" },
   { name: "Electroneum Explorer", url: "https://blockexplorer.electroneum.com" },
 ];
@@ -140,6 +143,7 @@ export default function Browser() {
 
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAllRecents, setShowAllRecents] = useState(false);
 
   const isUnlocked = useSession((s) => s.isUnlocked);
 
@@ -188,7 +192,12 @@ export default function Browser() {
   const clearRecents = useCallback(async () => {
     await AsyncStorage.removeItem(RECENTS_KEY);
     setRecents([]);
+    setShowAllRecents(false);
   }, []);
+
+  const RECENTS_COLLAPSED_COUNT = 5;
+  const RECENTS_EXPANDED_COUNT = 10;
+  const visibleRecents = recents.slice(0, showAllRecents ? RECENTS_EXPANDED_COUNT : RECENTS_COLLAPSED_COUNT);
 
   const query = value.trim().toLowerCase();
 
@@ -235,24 +244,24 @@ export default function Browser() {
   return (
     <Screen>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingBottom: SPACING.xxl }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={theme.muted} />}
       >
-        <View style={{ gap: 14 }}>
-          <T variant="h2" weight="bold">
+        <View>
+          <T weight="bold" style={{ fontSize: 32, lineHeight: 38, letterSpacing: -1 }}>
             Browser
           </T>
+
+          <View style={{ height: SPACING.xl }} />
 
           {/* URL bar */}
           <View
             style={{
-              borderRadius: 18,
-              borderWidth: 1,
-              borderColor: theme.border,
-              backgroundColor: theme.card,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
+              borderRadius: RADIUS.xl,
+              backgroundColor: theme.surface2,
+              paddingHorizontal: SPACING.md,
+              paddingVertical: SPACING.sm,
               flexDirection: "row",
               alignItems: "center",
               gap: 10,
@@ -271,6 +280,7 @@ export default function Browser() {
               onSubmitEditing={() => go(value)}
               style={{
                 flex: 1,
+                minWidth: 0,
                 color: theme.text,
                 fontSize: 16,
                 fontFamily: "Lexend_500Medium",
@@ -283,7 +293,7 @@ export default function Browser() {
                 {
                   width: 40,
                   height: 40,
-                  borderRadius: 14,
+                  borderRadius: 999,
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: theme.primary,
@@ -297,112 +307,154 @@ export default function Browser() {
 
           {/* Suggestions */}
           {query ? (
-            <View
-              style={{
-                borderRadius: 22,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.card,
-                overflow: "hidden",
-              }}
-            >
-              {suggestions.map((s, idx) => (
+            <>
+              <View style={{ height: SPACING.md }} />
+              <View>
+                {suggestions.map((s) => (
+                  <Pressable
+                    key={`${s.kind}:${s.url}`}
+                    onPress={() => go(s.url)}
+                    style={({ pressed }) => ({
+                      paddingVertical: SPACING.sm,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+                      <View
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: RADIUS.md,
+                          backgroundColor: theme.surface2,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {faviconUrl(s.url) ? (
+                          <Image source={{ uri: faviconUrl(s.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                        ) : (
+                          <Ionicons name="link-outline" size={18} color={theme.text} />
+                        )}
+                      </View>
+
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <T weight="semibold" numberOfLines={1}>
+                          {s.name}
+                        </T>
+                        <T variant="caption" color={theme.muted} numberOfLines={1}>
+                          {s.meta} • {s.url.replace(/^https?:\/\//, "")}
+                        </T>
+                      </View>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+
+          <View style={{ height: SPACING.xxl }} />
+
+          {/* Featured */}
+          <View>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <T weight="bold" style={{ fontSize: 18 }}>Featured</T>
+              <T variant="caption" color={theme.muted}>
+                Curated
+              </T>
+            </View>
+
+            <View style={{ height: SPACING.sm }} />
+
+            <View>
+              {FEATURED.map((d) => (
                 <Pressable
-                  key={`${s.kind}:${s.url}`}
-                  onPress={() => go(s.url)}
+                  key={d.url}
+                  onPress={() => go(d.url)}
                   style={({ pressed }) => ({
-                    paddingHorizontal: 16,
-                    paddingVertical: 14,
+                    paddingVertical: SPACING.sm,
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    opacity: pressed ? 0.92 : 1,
-                    borderTopWidth: idx === 0 ? 0 : 1,
-                    borderTopColor: theme.border,
+                    opacity: pressed ? 0.6 : 1,
                   })}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                     <View
                       style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        backgroundColor: theme.bg,
+                        width: 36,
+                        height: 36,
+                        borderRadius: RADIUS.md,
+                        backgroundColor: theme.surface2,
                         alignItems: "center",
                         justifyContent: "center",
                         overflow: "hidden",
                       }}
                     >
-                      {faviconUrl(s.url) ? (
-                        <Image source={{ uri: faviconUrl(s.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
+                      {faviconUrl(d.url) ? (
+                        <Image source={{ uri: faviconUrl(d.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
                       ) : (
                         <Ionicons name="link-outline" size={18} color={theme.text} />
                       )}
                     </View>
 
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <T weight="semibold" numberOfLines={1}>
-                        {s.name}
-                      </T>
+                      <T weight="semibold">{d.name}</T>
                       <T variant="caption" color={theme.muted} numberOfLines={1}>
-                        {s.meta} • {s.url.replace(/^https?:\/\//, "")}
+                        {d.url.replace(/^https?:\/\//, "")}
                       </T>
                     </View>
                   </View>
-
-                  <Ionicons name="chevron-forward" size={18} color={theme.muted} />
                 </Pressable>
               ))}
             </View>
-          ) : null}
+
+            <View style={{ height: SPACING.sm }} />
+
+            <T variant="caption" color={theme.muted}>
+              Only connect to sites you trust.
+            </T>
+          </View>
+
+          <View style={{ height: SPACING.xxl }} />
 
           {/* Recents */}
-          <View style={{ gap: 10, marginTop: query ? 2 : 6 }}>
+          <View>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T weight="bold">Recents</T>
-              <Pressable onPress={clearRecents} disabled={recents.length === 0}>
-                <T variant="caption" color={recents.length ? theme.muted : theme.border}>
+              <T weight="bold" style={{ fontSize: 18 }}>Recents</T>
+              <Pressable onPress={clearRecents} disabled={recents.length === 0} hitSlop={8}>
+                <T variant="caption" weight="semibold" color={recents.length ? theme.muted : theme.border}>
                   Clear
                 </T>
               </Pressable>
             </View>
 
+            <View style={{ height: SPACING.sm }} />
+
             {recents.length ? (
-              <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.card,
-                  overflow: "hidden",
-                }}
-              >
-                {recents.slice(0, 10).map((r, idx) => (
+              <View>
+                {visibleRecents.map((r) => (
                   <Pressable
                     key={r.url}
                     onPress={() => go(r.url)}
                     style={({ pressed }) => ({
-                      paddingHorizontal: 16,
-                      paddingVertical: 14,
+                      paddingVertical: SPACING.sm,
                       flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      opacity: pressed ? 0.92 : 1,
-                      borderTopWidth: idx === 0 ? 0 : 1,
-                      borderTopColor: theme.border,
+                      opacity: pressed ? 0.6 : 1,
                     })}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
                       <View
                         style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 16,
-                          borderWidth: 1,
-                          borderColor: theme.border,
-                          backgroundColor: theme.bg,
+                          width: 36,
+                          height: 36,
+                          borderRadius: RADIUS.md,
+                          backgroundColor: theme.surface2,
                           alignItems: "center",
                           justifyContent: "center",
                           overflow: "hidden",
@@ -424,96 +476,24 @@ export default function Browser() {
                         </T>
                       </View>
                     </View>
-
-                    <Ionicons name="chevron-forward" size={18} color={theme.muted} />
                   </Pressable>
                 ))}
               </View>
             ) : (
-              <View
-                style={{
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.card,
-                  padding: 16,
-                }}
-              >
-                <T color={theme.muted}>No recent sites yet. Pull to refresh anytime.</T>
-              </View>
+              <T color={theme.muted}>No recent sites yet. Pull to refresh anytime.</T>
             )}
-          </View>
 
-          {/* Featured */}
-          <View style={{ gap: 10, marginTop: 6 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <T weight="bold">Featured</T>
-              <T variant="caption" color={theme.muted}>
-                Curated
-              </T>
-            </View>
-
-            <View
-              style={{
-                borderRadius: 22,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.card,
-                overflow: "hidden",
-              }}
-            >
-              {FEATURED.map((d, idx) => (
-                <Pressable
-                  key={d.url}
-                  onPress={() => go(d.url)}
-                  style={({ pressed }) => ({
-                    paddingHorizontal: 16,
-                    paddingVertical: 14,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    opacity: pressed ? 0.92 : 1,
-                    borderTopWidth: idx === 0 ? 0 : 1,
-                    borderTopColor: theme.border,
-                  })}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-                    <View
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        backgroundColor: theme.bg,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {faviconUrl(d.url) ? (
-                        <Image source={{ uri: faviconUrl(d.url) }} style={{ width: 18, height: 18 }} resizeMode="contain" />
-                      ) : (
-                        <Ionicons name="link-outline" size={18} color={theme.text} />
-                      )}
-                    </View>
-
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <T weight="semibold">{d.name}</T>
-                      <T variant="caption" color={theme.muted} numberOfLines={1}>
-                        {d.url.replace(/^https?:\/\//, "")}
-                      </T>
-                    </View>
-                  </View>
-
-                  <Ionicons name="chevron-forward" size={18} color={theme.muted} />
-                </Pressable>
-              ))}
-            </View>
-
-            <T variant="caption" color={theme.muted} style={{ marginTop: 2 }}>
-              Only connect to sites you trust.
-            </T>
+            {recents.length > RECENTS_COLLAPSED_COUNT ? (
+              <Pressable
+                onPress={() => setShowAllRecents((v) => !v)}
+                hitSlop={8}
+                style={({ pressed }) => ({ paddingTop: SPACING.xs, opacity: pressed ? 0.6 : 1 })}
+              >
+                <T variant="caption" weight="semibold" color={theme.muted}>
+                  {showAllRecents ? "Show less" : `Show ${Math.min(recents.length, RECENTS_EXPANDED_COUNT) - RECENTS_COLLAPSED_COUNT} more`}
+                </T>
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </ScrollView>

@@ -16,6 +16,7 @@ import { ActivityIndicator, Modal, Pressable, View, Linking } from "react-native
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { WebView } from "react-native-webview";
 import { BlurView } from "expo-blur";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -34,6 +35,8 @@ import { getDomain } from "@/src/lib/url";
 import { isDomainConnected, setDomainConnected, disconnectDomain } from "@/src/lib/storage/dappPermissions";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
 import { estimateFees, getSigner, normalizeDappTx, sendRaw } from "@/src/lib/chain/wallet";
+import { notifyLocal } from "@/src/lib/notifications/local";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 type RpcReq = {
   id: number;
@@ -366,20 +369,18 @@ function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () 
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1 }}>
         <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-        <Pressable onPress={onClose} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
+        <Pressable style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.border,
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
               overflow: "hidden",
-              paddingBottom: 12 + Math.max(insets.bottom, 6),
+              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
             }}
           >
-            <View style={{ padding: 16, paddingBottom: 12 }}>
-              <T variant="h2" weight="bold" style={{ fontSize: 18, lineHeight: 22 }}>
+            <View style={{ padding: SPACING.lg, paddingBottom: SPACING.md }}>
+              <T weight="bold" style={{ fontSize: 19, lineHeight: 23 }}>
                 Options
               </T>
               <T variant="caption" color={theme.muted}>
@@ -387,9 +388,7 @@ function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () 
               </T>
             </View>
 
-            <View style={{ height: 1, backgroundColor: theme.border }} />
-
-            {items.map((it, idx) => (
+            {items.map((it) => (
               <Pressable
                 key={it.label}
                 onPress={() => {
@@ -397,11 +396,9 @@ function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () 
                   it.onPress();
                 }}
                 style={({ pressed }) => ({
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
-                  opacity: pressed ? 0.92 : 1,
-                  borderTopWidth: idx === 0 ? 0 : 1,
-                  borderTopColor: theme.border,
+                  paddingHorizontal: SPACING.lg,
+                  paddingVertical: SPACING.sm,
+                  opacity: pressed ? 0.6 : 1,
                 })}
               >
                 <T weight="semibold" color={it.destructive ? theme.danger : theme.text}>
@@ -415,7 +412,7 @@ function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () 
               </Pressable>
             ))}
 
-            <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+            <View style={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm }}>
               <Button title="Cancel" variant="outline" onPress={onClose} />
             </View>
           </Pressable>
@@ -447,16 +444,14 @@ function ConnectSheet({
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: 18,
-              gap: 10,
-              paddingBottom: 14 + Math.max(insets.bottom, 6),
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
+              padding: SPACING.lg,
+              gap: SPACING.sm,
+              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
             }}
           >
-            <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
               Connect wallet?
             </T>
 
@@ -466,12 +461,10 @@ function ConnectSheet({
 
             <View
               style={{
-                marginTop: 8,
-                padding: 12,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
+                marginTop: SPACING.xs,
+                padding: SPACING.md,
+                borderRadius: RADIUS.lg,
+                backgroundColor: theme.surface2,
               }}
             >
               <T weight="semibold">{origin}</T>
@@ -480,7 +473,7 @@ function ConnectSheet({
               </T>
             </View>
 
-            <View style={{ height: 6 }} />
+            <View style={{ height: SPACING.xs }} />
             <Button title="Connect" onPress={onApprove} />
             <Button title="Not now" variant="outline" onPress={onDeny} />
           </Pressable>
@@ -522,26 +515,22 @@ function SignSheet({
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: 18,
-              gap: 12,
-              paddingBottom: 14 + Math.max(insets.bottom, 6),
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
+              padding: SPACING.lg,
+              gap: SPACING.md,
+              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
             }}
           >
-            <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
               Sign request
             </T>
 
             <View
               style={{
-                padding: 12,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
+                padding: SPACING.md,
+                borderRadius: RADIUS.lg,
+                backgroundColor: theme.surface2,
                 gap: 6,
               }}
             >
@@ -558,11 +547,9 @@ function SignSheet({
 
             <View
               style={{
-                padding: 12,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
+                padding: SPACING.md,
+                borderRadius: RADIUS.lg,
+                backgroundColor: theme.surface2,
                 gap: 6,
               }}
             >
@@ -576,11 +563,9 @@ function SignSheet({
 
             <View
               style={{
-                padding: 12,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
+                padding: SPACING.md,
+                borderRadius: RADIUS.lg,
+                backgroundColor: theme.surface2,
               }}
             >
               <T weight="semibold">Be careful</T>
@@ -589,7 +574,7 @@ function SignSheet({
               </T>
             </View>
 
-            <View style={{ height: 6 }} />
+            <View style={{ height: SPACING.xs }} />
 
             <HoldToConfirm
               title={isSigning ? "Signing…" : "Hold to sign"}
@@ -659,27 +644,23 @@ function TxSheet({
           <Pressable
             onPress={() => {}}
             style={{
-              backgroundColor: theme.card,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: theme.border,
-              padding: 18,
-              gap: 12,
-              paddingBottom: 14 + Math.max(insets.bottom, 6),
+              backgroundColor: theme.bgElevated,
+              borderRadius: RADIUS.xxl,
+              padding: SPACING.lg,
+              gap: SPACING.md,
+              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
             }}
           >
-            <T variant="h2" weight="bold" style={{ fontSize: 20, lineHeight: 24 }}>
+            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
               {hasData ? "Approve contract call" : "Confirm transaction"}
             </T>
 
             {showWarn ? (
               <View
                 style={{
-                  padding: 12,
-                  borderRadius: 18,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  backgroundColor: theme.bg,
+                  padding: SPACING.md,
+                  borderRadius: RADIUS.lg,
+                  backgroundColor: theme.surface2,
                 }}
               >
                 <T weight="semibold">Caution</T>
@@ -691,11 +672,9 @@ function TxSheet({
 
             <View
               style={{
-                padding: 12,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: theme.border,
-                backgroundColor: theme.bg,
+                padding: SPACING.md,
+                borderRadius: RADIUS.lg,
+                backgroundColor: theme.surface2,
                 gap: 8,
               }}
             >
@@ -732,7 +711,7 @@ function TxSheet({
               </View>
             ) : null}
 
-            <View style={{ height: 6 }} />
+            <View style={{ height: SPACING.xs }} />
 
             <HoldToConfirm
               title={isSending ? "Sending…" : "Hold to confirm"}
@@ -1154,6 +1133,11 @@ if (rpc.method === "dw_disconnect") {
       const txToSend: ethers.TransactionRequest = { ...pendingTx.tx, from: address, chainId: ELECTRONEUM.chainId };
       const resp = await signer.sendTransaction(txToSend);
       respondRpc(pendingTx.rpc.id, resp.hash);
+      notifyLocal({
+        title: `${ELECTRONEUM.symbol} sent`,
+        body: `Transaction to ${domain} sent successfully`,
+        data: { accountId, route: "/(tabs)/wallet", kind: "sent" },
+      }).catch(() => {});
       setPendingTx(null);
     } catch (e: any) {
       respondRpc(pendingTx.rpc.id, null, { code: -32000, message: e?.message ?? "Transaction failed" });
@@ -1161,7 +1145,7 @@ if (rpc.method === "dw_disconnect") {
     } finally {
       setSending(false);
     }
-  }, [address, vaultKey, accountId, pendingTx, respondRpc]);
+  }, [address, vaultKey, accountId, pendingTx, respondRpc, domain]);
 
   const denyTx = useCallback(() => {
     if (!pendingTx) return;
@@ -1243,12 +1227,12 @@ if (rpc.method === "dw_disconnect") {
       {/* Top bar */}
       <View
         style={{
-          paddingTop: insets.top + 8,
-          paddingHorizontal: 14,
-          paddingBottom: 10,
+          paddingTop: insets.top + SPACING.sm,
+          paddingHorizontal: SPACING.md,
+          paddingBottom: SPACING.sm,
           borderBottomWidth: 1,
           borderBottomColor: theme.border,
-          backgroundColor: theme.card,
+          backgroundColor: theme.bg,
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
@@ -1389,40 +1373,36 @@ if (rpc.method === "dw_disconnect") {
 
       <Modal visible={accountSwitcherOpen} transparent animationType="fade" onRequestClose={() => setAccountSwitcherOpen(false)}>
         <View style={{ flex: 1 }}>
-          <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFillObject} />
+          <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
           <Pressable onPress={() => setAccountSwitcherOpen(false)} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
             <Pressable
               onPress={() => {}}
               style={{
-                backgroundColor: theme.card,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: theme.border,
+                backgroundColor: theme.bgElevated,
+                borderRadius: RADIUS.xxl,
                 overflow: "hidden",
-                paddingBottom: 12 + Math.max(insets.bottom, 6),
+                paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
               }}
             >
-              <View style={{ padding: 16, gap: 6 }}>
-                <T weight="bold" style={{ fontSize: 18 }}>
+              <View style={{ padding: SPACING.lg, gap: 6 }}>
+                <T weight="bold" style={{ fontSize: 19 }}>
                   Switch account
                 </T>
                 <T variant="caption" color={theme.muted}>
                   This site will see the account you pick.
                 </T>
               </View>
-              <View style={{ height: 1, backgroundColor: theme.border }} />
-              {accounts.map((a, idx) => (
+              {accounts.map((a) => (
                 <Pressable
                   key={a.id}
                   onPress={() => switchAccountLive(a.id)}
                   style={({ pressed }) => ({
-                    padding: 16,
-                    borderTopWidth: idx === 0 ? 0 : 1,
-                    borderTopColor: theme.border,
+                    paddingHorizontal: SPACING.lg,
+                    paddingVertical: SPACING.sm,
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    opacity: pressed ? 0.9 : 1,
+                    opacity: pressed ? 0.6 : 1,
                   })}
                 >
                   <View>

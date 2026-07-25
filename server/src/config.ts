@@ -32,6 +32,12 @@ export const config = {
   // chain above rather than going dark; see startDegradedPollingWatchdog().
   rpcWsUrl: required("RPC_WS_URL", "wss://rpc.ankr.com/electroneum/ws"),
   chainId: Number(required("CHAIN_ID", "52014")),
+  // FALLBACK ONLY. The authoritative token list is now fetched from the
+  // published registry at decentroneum.com/api/token-list.json — see
+  // tokenRegistry.ts. This is used only if that fetch has never succeeded
+  // (e.g. a restart during an outage), so the watcher degrades to a known
+  // list instead of going dark. Keep it populated, but you no longer need
+  // to update it when listing a token.
   trackedTokens: required("TRACKED_TOKENS", "")
     .split(",")
     .map((s) => s.trim())

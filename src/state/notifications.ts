@@ -1,7 +1,11 @@
 // src/state/notifications.ts
+//
+// "Funds received" notifications are on by default for every user — there is
+// no user-facing toggle for this anymore. hydrate() always requests the OS
+// permission and starts the watcher; the only thing that can turn this off
+// is the user denying the OS permission prompt (permissionGranted reflects
+// that, and Settings offers a link to the system Settings app in that case).
 import { create } from "zustand";
-import * as SecureStore from "expo-secure-store";
-import { STORAGE_KEYS } from "@/src/lib/storage/keys";
 import { getNotificationPermissionStatus, requestNotificationPermission } from "@/src/lib/notifications/permissions";
 import { startTxWatcher } from "@/src/lib/notifications/watcher";
 import { registerAddressForPush } from "@/src/lib/notifications/register";
@@ -22,37 +26,22 @@ export type NotificationsState = {
 };
 
 export const useNotifications = create<NotificationsState>((set, get) => ({
-  enabled: false,
+  enabled: true,
   permissionGranted: false,
   watcherActive: false,
   _stopWatcher: null,
 
   hydrate: async () => {
-    const [saved, status] = await Promise.all([
-      SecureStore.getItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED),
-      getNotificationPermissionStatus(),
-    ]);
-
-    const enabled = saved === "1";
-    const permissionGranted = status === "granted";
-    set({ enabled, permissionGranted });
-
-    if (enabled && permissionGranted) {
-      get().enable().catch(() => {});
-    }
+    const status = await getNotificationPermissionStatus();
+    set({ permissionGranted: status === "granted", enabled: true });
+    get().enable().catch(() => {});
   },
 
   enable: async () => {
     const granted = await requestNotificationPermission();
-    set({ permissionGranted: granted });
+    set({ permissionGranted: granted, enabled: true });
 
-    if (!granted) {
-      set({ enabled: false });
-      await SecureStore.setItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED, "0");
-      return false;
-    }
-
-    await SecureStore.setItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED, "1");
+    if (!granted) return false;
 
     const existingStop = get()._stopWatcher;
     if (!existingStop) {
@@ -73,14 +62,14 @@ export const useNotifications = create<NotificationsState>((set, get) => ({
       }
     }
 
-    set({ enabled: true });
     return true;
   },
 
+  // Only used internally (e.g. erasing the wallet from this device) — there
+  // is no user-facing switch that calls this anymore.
   disable: async () => {
     const stop = get()._stopWatcher;
     if (stop) stop();
-    set({ enabled: false, watcherActive: false, _stopWatcher: null });
-    await SecureStore.setItemAsync(STORAGE_KEYS.NOTIFICATIONS_ENABLED, "0");
+    set({ watcherActive: false, _stopWatcher: null });
   },
 }));

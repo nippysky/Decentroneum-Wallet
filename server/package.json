@@ -2,7 +2,7 @@
   "name": "decent-wallet-push-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Server-side push notification backend for Decent Wallet — watches the Electroneum Smart Chain for transfers to registered addresses and delivers Expo push notifications, including when the app is backgrounded or killed.",
+  "description": "Server-side push notification backend for Decent Wallet \u2014 watches the Electroneum Smart Chain for transfers to registered addresses and delivers Expo push notifications, including when the app is backgrounded or killed.",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

@@ -26,7 +26,13 @@ import Animated, {
 
 import { BRAND, Theme } from "@/src/theme/tokens";
 
-const AnimatedSvg = Animated.createAnimatedComponent(Svg);
+// Important: do NOT wrap the <Svg> root itself in Animated.createAnimatedComponent.
+// On the New Architecture (Fabric, mandatory on Expo 57/RN 0.86) that combo is
+// known to mount without ever painting — the layout space is reserved but
+// nothing draws, which is exactly the invisible-illustration bug this file
+// used to have. The fix is to animate a plain Animated.View wrapper instead
+// and keep the <Svg> itself fully static — react-native-svg's own docs
+// recommend this pattern for the same reason.
 
 function useEntrance(active: boolean) {
   const progress = useSharedValue(0);
@@ -76,22 +82,24 @@ export function SecurityIllustration({ theme, active, size = 152 }: Illustration
   const style = useEntrance(active);
   const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
   return (
-    <AnimatedSvg width={size} height={size} viewBox="0 0 120 120" style={style}>
-      <Backdrop theme={theme} />
-      <G>
-        <Rect x={38} y={24} width={44} height={72} rx={10} stroke={theme.accent} strokeWidth={3.2} fill="none" />
-        <Line x1={48} y1={34} x2={72} y2={34} stroke={theme.accent} strokeWidth={3.2} strokeLinecap="round" />
-        <Path
-          d="M60 50 L74 56 V70 C74 79 68 85 60 88 C52 85 46 79 46 70 V56 Z"
-          stroke={ink}
-          strokeWidth={3.2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          fill={theme.bg}
-        />
-        <Path d="M53 69 L58 74 L68 63" stroke={theme.accent} strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </G>
-    </AnimatedSvg>
+    <Animated.View style={style}>
+      <Svg width={size} height={size} viewBox="0 0 120 120">
+        <Backdrop theme={theme} />
+        <G>
+          <Rect x={38} y={24} width={44} height={72} rx={10} stroke={theme.accent} strokeWidth={3.2} fill="none" />
+          <Line x1={48} y1={34} x2={72} y2={34} stroke={theme.accent} strokeWidth={3.2} strokeLinecap="round" />
+          <Path
+            d="M60 50 L74 56 V70 C74 79 68 85 60 88 C52 85 46 79 46 70 V56 Z"
+            stroke={ink}
+            strokeWidth={3.2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            fill={theme.bg}
+          />
+          <Path d="M53 69 L58 74 L68 63" stroke={theme.accent} strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </G>
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -107,26 +115,28 @@ export function NetworkIllustration({ theme, active, size = 152 }: IllustrationP
     { x: 26, y: 44 },
   ];
   return (
-    <AnimatedSvg width={size} height={size} viewBox="0 0 120 120" style={style}>
-      <Backdrop theme={theme} />
-      <G>
-        {nodes.map((n, i) => (
-          <Line key={i} x1={60} y1={62} x2={n.x} y2={n.y} stroke={theme.accent} strokeWidth={2} strokeOpacity={0.55} />
-        ))}
-        {nodes.map((n, i) => (
-          <Circle key={i} cx={n.x} cy={n.y} r={5} fill={theme.bg} stroke={theme.accent} strokeWidth={2.4} />
-        ))}
-        {/* central hexagon, echoing the brand mark */}
-        <Path
-          d="M60 44 L76 53 V71 L60 80 L44 71 V53 Z"
-          stroke={theme.accent}
-          strokeWidth={3.4}
-          strokeLinejoin="round"
-          fill={theme.bg}
-        />
-        <Circle cx={60} cy={62} r={7} fill={theme.accent} />
-      </G>
-    </AnimatedSvg>
+    <Animated.View style={style}>
+      <Svg width={size} height={size} viewBox="0 0 120 120">
+        <Backdrop theme={theme} />
+        <G>
+          {nodes.map((n, i) => (
+            <Line key={i} x1={60} y1={62} x2={n.x} y2={n.y} stroke={theme.accent} strokeWidth={2} strokeOpacity={0.55} />
+          ))}
+          {nodes.map((n, i) => (
+            <Circle key={i} cx={n.x} cy={n.y} r={5} fill={theme.bg} stroke={theme.accent} strokeWidth={2.4} />
+          ))}
+          {/* central hexagon, echoing the brand mark */}
+          <Path
+            d="M60 44 L76 53 V71 L60 80 L44 71 V53 Z"
+            stroke={theme.accent}
+            strokeWidth={3.4}
+            strokeLinejoin="round"
+            fill={theme.bg}
+          />
+          <Circle cx={60} cy={62} r={7} fill={theme.accent} />
+        </G>
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -135,16 +145,18 @@ export function AccountsIllustration({ theme, active, size = 152 }: Illustration
   const style = useEntrance(active);
   const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
   return (
-    <AnimatedSvg width={size} height={size} viewBox="0 0 120 120" style={style}>
-      <Backdrop theme={theme} />
-      <G>
-        <Rect x={26} y={38} width={62} height={40} rx={12} stroke={ink} strokeWidth={2.6} fill={theme.bg} opacity={0.55} />
-        <Rect x={34} y={50} width={64} height={40} rx={12} stroke={theme.accent} strokeWidth={3.2} fill={theme.bg} />
-        <Circle cx={48} cy={68} r={7} stroke={theme.accent} strokeWidth={2.6} fill="none" />
-        <Line x1={62} y1={64} x2={88} y2={64} stroke={theme.accent} strokeWidth={2.6} strokeLinecap="round" />
-        <Line x1={62} y1={74} x2={80} y2={74} stroke={theme.accent} strokeWidth={2.6} strokeLinecap="round" strokeOpacity={0.6} />
-      </G>
-    </AnimatedSvg>
+    <Animated.View style={style}>
+      <Svg width={size} height={size} viewBox="0 0 120 120">
+        <Backdrop theme={theme} />
+        <G>
+          <Rect x={26} y={38} width={62} height={40} rx={12} stroke={ink} strokeWidth={2.6} fill={theme.bg} opacity={0.55} />
+          <Rect x={34} y={50} width={64} height={40} rx={12} stroke={theme.accent} strokeWidth={3.2} fill={theme.bg} />
+          <Circle cx={48} cy={68} r={7} stroke={theme.accent} strokeWidth={2.6} fill="none" />
+          <Line x1={62} y1={64} x2={88} y2={64} stroke={theme.accent} strokeWidth={2.6} strokeLinecap="round" />
+          <Line x1={62} y1={74} x2={80} y2={74} stroke={theme.accent} strokeWidth={2.6} strokeLinecap="round" strokeOpacity={0.6} />
+        </G>
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -153,18 +165,20 @@ export function BrowserIllustration({ theme, active, size = 152 }: IllustrationP
   const style = useEntrance(active);
   const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
   return (
-    <AnimatedSvg width={size} height={size} viewBox="0 0 120 120" style={style}>
-      <Backdrop theme={theme} />
-      <G>
-        <Rect x={24} y={30} width={72} height={58} rx={12} stroke={theme.accent} strokeWidth={3} fill={theme.bg} />
-        <Line x1={24} y1={44} x2={96} y2={44} stroke={theme.accent} strokeWidth={2} strokeOpacity={0.5} />
-        <Circle cx={33} cy={37} r={2} fill={theme.accent} />
-        <Circle cx={41} cy={37} r={2} fill={theme.accent} opacity={0.6} />
-        <Circle cx={49} cy={37} r={2} fill={theme.accent} opacity={0.4} />
-        <Circle cx={60} cy={67} r={16} stroke={ink} strokeWidth={2.8} fill="none" />
-        <Path d="M60 58 L64 63 L60 76 L56 63 Z" fill={theme.accent} />
-      </G>
-    </AnimatedSvg>
+    <Animated.View style={style}>
+      <Svg width={size} height={size} viewBox="0 0 120 120">
+        <Backdrop theme={theme} />
+        <G>
+          <Rect x={24} y={30} width={72} height={58} rx={12} stroke={theme.accent} strokeWidth={3} fill={theme.bg} />
+          <Line x1={24} y1={44} x2={96} y2={44} stroke={theme.accent} strokeWidth={2} strokeOpacity={0.5} />
+          <Circle cx={33} cy={37} r={2} fill={theme.accent} />
+          <Circle cx={41} cy={37} r={2} fill={theme.accent} opacity={0.6} />
+          <Circle cx={49} cy={37} r={2} fill={theme.accent} opacity={0.4} />
+          <Circle cx={60} cy={67} r={16} stroke={ink} strokeWidth={2.8} fill="none" />
+          <Path d="M60 58 L64 63 L60 76 L56 63 Z" fill={theme.accent} />
+        </G>
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -173,22 +187,24 @@ export function NotificationsIllustration({ theme, active, size = 152 }: Illustr
   const style = useEntrance(active);
   const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
   return (
-    <AnimatedSvg width={size} height={size} viewBox="0 0 120 120" style={style}>
-      <Backdrop theme={theme} />
-      <G>
-        <Circle cx={60} cy={54} r={30} stroke={theme.accent} strokeWidth={1.6} strokeOpacity={0.28} fill="none" />
-        <Circle cx={60} cy={54} r={21} stroke={theme.accent} strokeWidth={1.8} strokeOpacity={0.45} fill="none" />
-        <Path
-          d="M60 30 C68 30 74 37 74 46 V58 L80 68 H40 L46 58 V46 C46 37 52 30 60 30 Z"
-          stroke={ink}
-          strokeWidth={3}
-          strokeLinejoin="round"
-          fill={theme.bg}
-        />
-        <Path d="M53 68 C53 73 56 76 60 76 C64 76 67 73 67 68" stroke={ink} strokeWidth={3} strokeLinecap="round" fill="none" />
-        <Circle cx={78} cy={38} r={6.5} fill={theme.accent} />
-      </G>
-    </AnimatedSvg>
+    <Animated.View style={style}>
+      <Svg width={size} height={size} viewBox="0 0 120 120">
+        <Backdrop theme={theme} />
+        <G>
+          <Circle cx={60} cy={54} r={30} stroke={theme.accent} strokeWidth={1.6} strokeOpacity={0.28} fill="none" />
+          <Circle cx={60} cy={54} r={21} stroke={theme.accent} strokeWidth={1.8} strokeOpacity={0.45} fill="none" />
+          <Path
+            d="M60 30 C68 30 74 37 74 46 V58 L80 68 H40 L46 58 V46 C46 37 52 30 60 30 Z"
+            stroke={ink}
+            strokeWidth={3}
+            strokeLinejoin="round"
+            fill={theme.bg}
+          />
+          <Path d="M53 68 C53 73 56 76 60 76 C64 76 67 73 67 68" stroke={ink} strokeWidth={3} strokeLinecap="round" fill="none" />
+          <Circle cx={78} cy={38} r={6.5} fill={theme.accent} />
+        </G>
+      </Svg>
+    </Animated.View>
   );
 }
 

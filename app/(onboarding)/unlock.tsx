@@ -1,15 +1,15 @@
 // app/(onboarding)/unlock.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Animated, Pressable, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Screen } from "@/src/components/Screen";
-import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
 import { useTheme } from "@/src/theme/ThemeProvider";
+import { SPACING } from "@/src/theme/tokens";
 
 import { useSession } from "@/src/state/session";
 
@@ -34,12 +34,23 @@ export default function Unlock() {
   const [error, setError] = useState<string | null>(null);
 
   const didAutoBio = useRef(false);
+  const shakeX = useRef(new Animated.Value(0)).current;
 
-  const canUnlock = useMemo(() => is6Digits(pin) && !busy, [pin, busy]);
   const dots = useMemo(
     () => Array.from({ length: 6 }).map((_, i) => i < pin.length),
     [pin.length]
   );
+
+  const shake = () => {
+    shakeX.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeX, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeX, { toValue: -1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeX, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeX, { toValue: -1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shakeX, { toValue: 0, duration: 45, useNativeDriver: true }),
+    ]).start();
+  };
 
   const addDigit = async (d: string) => {
     if (busy) return;
@@ -66,6 +77,7 @@ export default function Unlock() {
     } catch {
       setPin("");
       setError("Incorrect passcode.");
+      shake();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setBusy(false);
@@ -76,6 +88,18 @@ export default function Unlock() {
     if (!is6Digits(pin)) return;
     await finishUnlock(pin);
   };
+
+  // Classy, modern passcode UX: as soon as the 6th digit lands, log the
+  // person straight in — no separate "Unlock" tap needed. A brief pause
+  // lets the last dot visibly fill before the screen moves on.
+  useEffect(() => {
+    if (!is6Digits(pin) || busy) return;
+    const t = setTimeout(() => {
+      doUnlock();
+    }, 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pin]);
 
   const canUseBiometrics = async () => {
     if (!biometricEnabled) return false;
@@ -156,42 +180,73 @@ export default function Unlock() {
 
   return (
     <Screen>
-      <View style={{ flex: 1, gap: 14 }}>
-        {/* Header */}
-        <View style={{ gap: 8, marginTop: 6 }}>
-          <T variant="h2" weight="bold" style={{ fontSize: 34, lineHeight: 38 }}>
-            Unlock
-          </T>
-          <T color={theme.muted} style={{ fontSize: 16, lineHeight: 22 }}>
-            Enter your passcode to access your wallet.
-          </T>
-        </View>
+      <View style={{ flex: 1 }}>
+        <View style={{ height: SPACING.xxl }} />
 
-        {/* Dots */}
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+        <T weight="bold" style={{ fontSize: 34, lineHeight: 40, letterSpacing: -1 }}>
+          Unlock
+        </T>
+
+        <View style={{ height: SPACING.sm }} />
+
+        <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23 }}>
+          Enter your passcode to access your wallet.
+        </T>
+
+        <View style={{ height: SPACING.xxl }} />
+
+        {/* Dots — shake on a wrong passcode */}
+        <Animated.View
+          style={{
+            flexDirection: "row",
+            gap: 16,
+            justifyContent: "center",
+            transform: [
+              {
+                translateX: shakeX.interpolate({ inputRange: [-1, 0, 1], outputRange: [-8, 0, 8] }),
+              },
+            ],
+          }}
+        >
           {dots.map((filled, i) => (
             <View
               key={i}
               style={{
-                width: 12,
-                height: 12,
+                width: 15,
+                height: 15,
                 borderRadius: 999,
                 backgroundColor: filled ? theme.accent : theme.border,
-                transform: [{ scale: filled ? 1.05 : 1 }],
               }}
             />
           ))}
+        </Animated.View>
+
+        <View style={{ height: 32, alignItems: "center", justifyContent: "center" }}>
+          {error ? (
+            <T variant="caption" color={theme.danger}>
+              {error}
+            </T>
+          ) : busy ? (
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+              <ActivityIndicator size="small" />
+              <T variant="caption" color={theme.muted}>
+                Decrypting locally…
+              </T>
+            </View>
+          ) : null}
         </View>
 
-        {/* Keypad */}
-        <View style={{ gap: 10, marginTop: 14 }}>
+        <View style={{ height: SPACING.xl }} />
+
+        {/* Keypad — flat, no borders */}
+        <View style={{ gap: SPACING.md }}>
           {[
             ["1", "2", "3"],
             ["4", "5", "6"],
             ["7", "8", "9"],
             ["bio", "0", "del"],
           ].map((row, r) => (
-            <View key={r} style={{ flexDirection: "row", gap: 10 }}>
+            <View key={r} style={{ flexDirection: "row", gap: SPACING.md }}>
               {row.map((k) => {
                 const isDel = k === "del";
                 const isBio = k === "bio";
@@ -209,22 +264,19 @@ export default function Unlock() {
                     style={({ pressed }) => [
                       {
                         flex: 1,
-                        height: 56,
+                        height: 60,
                         borderRadius: 18,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        backgroundColor: theme.card,
+                        backgroundColor: pressed && !disabled ? theme.border : theme.surface2,
                         alignItems: "center",
                         justifyContent: "center",
-                        opacity: !bioReady && isBio ? 0.35 : busy ? 0.65 : 1,
+                        opacity: !bioReady && isBio ? 0 : busy ? 0.65 : 1,
                       },
-                      pressed && !busy ? { opacity: 0.85 } : null,
                     ]}
                   >
                     {isBio ? (
                       <Ionicons name={bioIcon} size={20} color={theme.text} />
                     ) : (
-                      <T weight="semibold" style={{ fontSize: 18 }}>
+                      <T weight="semibold" style={{ fontSize: 20 }}>
                         {isDel ? "⌫" : k}
                       </T>
                     )}
@@ -235,32 +287,8 @@ export default function Unlock() {
           ))}
         </View>
 
-        {/* Status / Errors */}
-        <View style={{ marginTop: 6, minHeight: 54, justifyContent: "center" }}>
-          {error ? (
-            <T color={theme.danger} style={{ textAlign: "center" }}>
-              {error}
-            </T>
-          ) : (
-            <T variant="caption" color={theme.muted} style={{ textAlign: "center" }}>
-              Unlocking happens locally on your device.
-            </T>
-          )}
-
-          {busy ? (
-            <View style={{ marginTop: 10, flexDirection: "row", gap: 10, justifyContent: "center" }}>
-              <ActivityIndicator />
-              <T variant="caption" color={theme.muted}>
-                Decrypting locally…
-              </T>
-            </View>
-          ) : null}
-        </View>
-
-        {/* Primary action */}
-        <View style={{ marginTop: "auto", gap: 12 }}>
-          <Button title={busy ? "Unlocking…" : "Unlock"} disabled={!canUnlock} onPress={doUnlock} />
-
+        {/* Auto-submits at 6 digits — no separate Unlock button needed. */}
+        <View style={{ marginTop: "auto", paddingTop: SPACING.xl, alignItems: "center" }}>
           {bioReady ? (
             <Pressable
               disabled={busy}
@@ -270,12 +298,11 @@ export default function Unlock() {
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                opacity: pressed ? 0.8 : busy ? 0.6 : 1,
+                padding: SPACING.md,
+                opacity: pressed ? 0.6 : busy ? 0.6 : 1,
               })}
             >
-              <Ionicons name={bioIcon} size={16} color={theme.muted} />
+              <Ionicons name={bioIcon} size={15} color={theme.muted} />
               <T variant="caption" weight="semibold" color={theme.muted}>
                 Use {bioLabel}
               </T>

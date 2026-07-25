@@ -3,7 +3,6 @@ import React, { useMemo, useRef, useState } from "react";
 import {
   Dimensions,
   FlatList,
-  Platform,
   Pressable,
   View,
   NativeScrollEvent,
@@ -13,12 +12,13 @@ import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Image } from "expo-image";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { Screen } from "@/src/components/Screen";
 import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
 import { ONBOARDING_ILLUSTRATIONS } from "@/src/components/illustrations/OnboardingIllustrations";
+import { openInApp } from "@/src/lib/chain/openExplorer";
+import { SCREEN_PADDING, SPACING } from "@/src/theme/tokens";
 
 type Slide = {
   key: keyof typeof ONBOARDING_ILLUSTRATIONS;
@@ -37,32 +37,32 @@ export default function Welcome() {
       {
         key: "security",
         kicker: "Security-first",
-        title: "Your keys stay on\nyour phone.",
-        body: "Decent Wallet is non-custodial. No accounts, no custody, no “reset password” that can leak your wallet.",
+        title: "Your keys stay\non your phone.",
+        body: "Non-custodial. No “reset password” that can leak your wallet.",
       },
       {
         key: "electroneum",
         kicker: "Electroneum-only",
-        title: "Built for the\nElectroneum ecosystem.",
-        body: "One network. Less confusion. Cleaner UX. You can hold ETN and ERC-20 tokens on Electroneum Smart Chain.",
+        title: "One network,\ndone right.",
+        body: "Hold ETN and ERC-20 tokens on Electroneum Smart Chain.",
       },
       {
         key: "accounts",
         kicker: "Multiple accounts",
-        title: "Manage more than\none wallet.",
-        body: "Create or import multiple accounts and switch between them instantly — all inside one app.",
+        title: "More than\none wallet.",
+        body: "Create or import accounts, switch instantly, all in one app.",
       },
       {
         key: "browser",
-        kicker: "Built-in browser & explorer",
-        title: "Explore dApps,\ntrack every transaction.",
-        body: "Approve dApp connections per-site, and follow your on-chain activity with a real block explorer built in.",
+        kicker: "Web3 browser",
+        title: "Browse dApps,\nconnect instantly.",
+        body: "Built-in browser with WalletConnect support — approve connections per site.",
       },
       {
         key: "notifications",
         kicker: "Stay in the loop",
         title: "Know the moment\nfunds arrive.",
-        body: "Turn on notifications and Decent Wallet will let you know as soon as you receive ETN or tokens.",
+        body: "Get notified instantly when you receive ETN or tokens.",
       },
     ],
     []
@@ -87,11 +87,10 @@ export default function Welcome() {
   const Dot = ({ active }: { active: boolean }) => (
     <View
       style={{
-        width: active ? 18 : 8,
-        height: 8,
+        width: active ? 20 : 6,
+        height: 6,
         borderRadius: 999,
         backgroundColor: active ? theme.accent : theme.border,
-        opacity: active ? 1 : 0.7,
       }}
     />
   );
@@ -105,57 +104,16 @@ export default function Welcome() {
         paddingBottom: 0,
       }}
     >
-      {/* Top brand header */}
-      <View
-        style={{
-          paddingTop: insets.top + 14,
-          paddingHorizontal: 20,
-          paddingBottom: 10,
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <View
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 14,
-              overflow: "hidden",
-              borderWidth: 1,
-              borderColor: theme.border,
-            }}
-          >
-            <Image source={require("@/assets/images/icon.png")} style={{ width: 42, height: 42 }} contentFit="cover" />
-          </View>
+      {/* No header chrome — the slide itself is the whole screen. */}
+      <View style={{ height: insets.top + SPACING.md }} />
 
-          <View style={{ flex: 1 }}>
-            <T
-              weight="bold"
-              numberOfLines={1}
-              style={{
-                fontSize: 28,
-                lineHeight: 34, // ✅ prevents Lexend top clipping
-                letterSpacing: -0.6,
-                paddingTop: 2,
-                ...(Platform.OS === "android"
-                  ? ({ includeFontPadding: false } as any)
-                  : null),
-              }}
-            >
-              Decent Wallet
-            </T>
-
-            <T variant="caption" color={theme.muted} style={{ marginTop: 2 }}>
-              Security-first • Electroneum-only
-            </T>
-          </View>
-        </View>
-      </View>
-
-      {/* Slides */}
-      <View
-        style={{ flex: 1 }}
-        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      >
+      {/* Slides — a normal flex column per slide (illustration: flex:1 centered,
+          copy: natural height, pinned above the bottom actions via paddingBottom
+          on the slide itself). This is the standard, reliable RN pattern; the
+          previous illustration-not-showing bug was NOT a layout issue — it was
+          animating the <Svg> root directly (see OnboardingIllustrations.tsx),
+          which silently fails to paint on Fabric. That's fixed there now. */}
+      <View style={{ flex: 1 }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
         <FlatList
           ref={listRef}
           data={slides}
@@ -169,65 +127,55 @@ export default function Welcome() {
           renderItem={({ item, index: i }) => {
             const Illustration = ONBOARDING_ILLUSTRATIONS[item.key];
             return (
-            <View
-              style={{
-                width,
-                paddingHorizontal: 20,
-                paddingTop: 12,
-                paddingBottom: 160, // space for bottom actions
-              }}
-            >
-              <View style={{ gap: 12, flex: 1 }}>
-                <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 4 }}>
-                  <Illustration theme={theme} active={i === index} size={128} />
+              <View
+                style={{
+                  width,
+                  flex: 1,
+                  paddingHorizontal: SCREEN_PADDING,
+                  paddingBottom: 288, // clears dots + buttons + caption + safe area + the extra breathing room added below
+                }}
+              >
+                {/* Top-anchored, not centered — the leftover space below the
+                    copy becomes breathing room above the buttons instead of
+                    a dead gap above the icon. */}
+                <View style={{ alignItems: "center", paddingTop: SPACING.xl, paddingBottom: SPACING.xxl }}>
+                  <Illustration theme={theme} active={i === index} size={188} />
                 </View>
 
-                <View style={{ gap: 10 }}>
-                  <T
-                    variant="caption"
-                    weight="semibold"
-                    color={theme.muted}
-                    style={{ letterSpacing: 0.3 }}
-                  >
-                    {item.kicker}
+                <View>
+                  <T variant="caption" weight="semibold" color={theme.accent} style={{ letterSpacing: 0.4 }}>
+                    {item.kicker.toUpperCase()}
                   </T>
 
-                  <T
-                    weight="bold"
-                    style={{
-                      fontSize: 32,
-                      lineHeight: 40,
-                      letterSpacing: -1,
-                    }}
-                  >
+                  <View style={{ height: SPACING.xs }} />
+
+                  <T weight="bold" style={{ fontSize: 32, lineHeight: 38, letterSpacing: -1.1 }}>
                     {item.title}
                   </T>
 
-                  <T
-                    color={theme.muted}
-                    style={{
-                      fontSize: 17,
-                      lineHeight: 24,
-                      maxWidth: 340,
-                    }}
-                  >
+                  <View style={{ height: SPACING.sm }} />
+
+                  <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23, maxWidth: 320 }}>
                     {item.body}
                   </T>
                 </View>
               </View>
-            </View>
             );
           }}
         />
       </View>
 
-      {/* Bottom actions + dots (layered) */}
+      {/* Bottom actions + dots (layered) — pushed further down via paddingTop
+          so the buttons sit closer to the true bottom edge, using space that
+          was previously just sitting empty, and opening up more air between
+          the slide copy above and the dots. */}
       <View
         style={{
           position: "absolute",
           left: 0,
           right: 0,
           bottom: 0,
+          paddingTop: SPACING.xxxl,
           paddingBottom: Math.max(insets.bottom, 14),
         }}
       >
@@ -251,17 +199,16 @@ export default function Welcome() {
           style={{
             alignItems: "center",
             justifyContent: "center",
-            paddingTop: 10,
-            paddingBottom: 12,
+            paddingBottom: SPACING.lg,
           }}
         >
-          <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
             {slides.map((_, i) => (
               <Pressable
                 key={slides[i].key}
                 onPress={() => goTo(i)}
                 hitSlop={12}
-                style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
               >
                 <Dot active={i === index} />
               </Pressable>
@@ -270,27 +217,49 @@ export default function Welcome() {
         </View>
 
         {/* Buttons */}
-        <View style={{ paddingHorizontal: 20, gap: 12 }}>
-          <Button
-            title="Create a new wallet"
-            onPress={() => router.push("/(onboarding)/create")}
-          />
-          <Button
-            title="I already have a wallet"
-            variant="outline"
-            onPress={() => router.push("/(onboarding)/import")}
-          />
+        <View style={{ paddingHorizontal: SCREEN_PADDING, gap: SPACING.md }}>
+          <Button title="Create a new wallet" onPress={() => router.push("/(onboarding)/create")} />
+          <Button title="I already have a wallet" variant="outline" onPress={() => router.push("/(onboarding)/import")} />
 
           <T
             variant="caption"
             color={theme.muted}
             style={{
               textAlign: "center",
-              marginTop: 6,
-              paddingHorizontal: 14,
+              marginTop: SPACING.sm,
+              paddingHorizontal: SPACING.md,
             }}
           >
             Keep your recovery phrase private. Anyone with it can access your funds.
+          </T>
+
+          {/* Legal consent shown BEFORE wallet creation, not buried in
+              Settings — both app stores expect terms to be reachable at the
+              point of sign-up for a financial app. */}
+          <T
+            variant="caption"
+            color={theme.muted}
+            style={{ textAlign: "center", paddingHorizontal: SPACING.md }}
+          >
+            By continuing you agree to our{" "}
+            <T
+              variant="caption"
+              weight="semibold"
+              color={theme.accent}
+              onPress={() => openInApp("https://decentroneum.com/terms")}
+            >
+              Terms of Service
+            </T>{" "}
+            and{" "}
+            <T
+              variant="caption"
+              weight="semibold"
+              color={theme.accent}
+              onPress={() => openInApp("https://decentroneum.com/privacy")}
+            >
+              Privacy Policy
+            </T>
+            .
           </T>
         </View>
       </View>
