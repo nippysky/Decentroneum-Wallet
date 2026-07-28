@@ -50,7 +50,6 @@ server/dist/
 server/logs/
 
 # Firebase / FCM credentials — real secrets, never commit these
-google-services.json
 GoogleService-Info.plist
 *firebase-adminsdk*.json
 *-firebase-*.json
