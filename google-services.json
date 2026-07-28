@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "862175999177",
+    "project_id": "decent-wallet-c7e6f",
+    "storage_bucket": "decent-wallet-c7e6f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:862175999177:android:4522a2beef822b880c8918",
+        "android_client_info": {
+          "package_name": "com.decentroneum.wallet"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA3fCClZG-RcA4TFX1fOKIb5OAfx5eHK-c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
