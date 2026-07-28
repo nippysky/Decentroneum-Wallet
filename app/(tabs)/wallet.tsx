@@ -1,5 +1,6 @@
 // app/(tabs)/wallet.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "@/src/state/toast";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
@@ -9,7 +10,6 @@ import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
-import { Toast } from "@/src/components/Toast";
 import { TokenLogo } from "@/src/components/TokenLogo";
 import { ReceiveModal } from "@/src/components/ReceiveModal";
 import { CircleAction } from "@/src/components/CircleAction";
@@ -26,6 +26,7 @@ import { useTokens } from "@/src/state/tokens";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { formatNative2dpFromWei, formatUnits2dp, shortAddr } from "@/src/lib/format";
 import { useAutoRefresh } from "@/src/hooks/useAutoRefresh";
+import { AccountSwitcher } from "@/src/components/AccountSwitcher";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 
 /* ---------------------------------- Wallet ---------------------------------- */
@@ -61,11 +62,8 @@ export default function Wallet() {
 
   const [tokenBalances, setTokenBalances] = useState<Record<string, bigint>>({});
 
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
 
   const postTxTimersRef = useRef<number[]>([]);
-  const toastTimerRef = useRef<number | null>(null);
 
   // Prevent overlapping refreshes (helps tab switching + focus refresh)
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -74,17 +72,13 @@ export default function Wallet() {
     return () => {
       for (const id of postTxTimersRef.current) clearTimeout(id);
       postTxTimersRef.current = [];
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       refreshInFlightRef.current = null;
     };
   }, []);
 
-  const showToast = useCallback((msg: string) => {
-    setToastMsg(msg);
-    setToastVisible(true);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastVisible(false), 1300) as unknown as number;
-  }, []);
+  // One toast, app-wide: src/state/toast.ts + <ToastHost/> at the root.
+  // No local message/visible/timer state to keep in sync.
+  const showToast = (msg: string) => toast.info(msg);
 
   const nativeBalanceText = useMemo(() => formatNative2dpFromWei(balanceWei), [balanceWei]);
 
@@ -105,7 +99,18 @@ export default function Wallet() {
       // background poll should leave the last-known balance alone.
       if (!silent) setErr(e?.message ?? "Failed to load balance");
     } finally {
-      if (!silent) setLoading(false);
+      // ALWAYS clear, even on a silent refresh.
+      //
+      // This was `if (!silent)`, which stranded the skeleton: switching
+      // accounts sets loading=true (to drop the previous account's figures),
+      // but the refresh that follows a switch is silent — so nothing ever
+      // set it back to false. It only *looked* fine on funded accounts,
+      // because the skeleton also requires balance === 0. Any account with a
+      // zero balance sat under a skeleton until a manual pull-to-refresh.
+      //
+      // Setting the flag stays gated on !silent (so background polls don't
+      // flash placeholders); clearing it must not be.
+      setLoading(false);
     }
   }, [address]);
 
@@ -138,7 +143,8 @@ export default function Wallet() {
       for (const [k, v] of results) map[k] = v;
       setTokenBalances(map);
     } finally {
-      if (!silent) setTokenLoading(false);
+      // Always clear — same stranded-skeleton reasoning as refreshNative.
+      setTokenLoading(false);
     }
   }, [address, tokens]);
 
@@ -263,48 +269,14 @@ export default function Wallet() {
           {accounts.length > 1 ? (
             <>
               <View style={{ height: SPACING.lg }} />
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.sm, paddingRight: 4 }}>
-                {accounts.map((a) => {
-                  const active = a.id === accountId;
-                  return (
-                    <Pressable
-                      key={a.id}
-                      onPress={async () => {
-                        if (active) return;
-                        await useAccounts.getState().switchAccount(a.id);
-                        showToast(`Switched to ${a.label}`);
-                      }}
-                      style={({ pressed }) => ({
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                        paddingHorizontal: 14,
-                        paddingVertical: 9,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: active ? theme.primary : theme.border,
-                        // Same treatment as the Send button (ink in light mode,
-                        // neon in dark mode) — one consistent "emphasis" color
-                        // app-wide instead of a separate green fill just here.
-                        backgroundColor: active ? theme.primary : "transparent",
-                        opacity: pressed ? 0.9 : 1,
-                      })}
-                    >
-                      <View
-                        style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: 4,
-                          backgroundColor: active ? theme.bg : theme.muted,
-                        }}
-                      />
-                      <T weight="semibold" style={{ color: active ? theme.bg : theme.text, fontSize: 13 }}>
-                        {a.label}
-                      </T>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+              <AccountSwitcher
+                accounts={accounts}
+                activeId={accountId}
+                onSwitch={async (a) => {
+                  await useAccounts.getState().switchAccount(a.id);
+                  showToast(`Switched to ${a.label}`);
+                }}
+              />
             </>
           ) : null}
 
@@ -465,8 +437,6 @@ export default function Wallet() {
       </ScrollView>
 
       <ReceiveModal visible={receiveOpen} onClose={() => setReceiveOpen(false)} address={address ?? ""} />
-
-      <Toast message={toastMsg} visible={toastVisible} />
     </Screen>
   );
 }

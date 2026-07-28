@@ -13,7 +13,7 @@ import "react-native-get-random-values"; // helps ethers on RN
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, View, Linking } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { WebView } from "react-native-webview";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -556,7 +556,7 @@ function SignSheet({
               <T variant="caption" color={theme.muted}>
                 Preview
               </T>
-              <T numberOfLines={4} style={{ fontFamily: "Lexend_500Medium" }}>
+              <T numberOfLines={4} weight="medium">
                 {messagePreview}
               </T>
             </View>
@@ -691,7 +691,7 @@ function TxSheet({
                   <T variant="caption" color={theme.muted}>
                     Data (preview)
                   </T>
-                  <T style={{ fontFamily: "Lexend_500Medium" }} numberOfLines={1}>
+                  <T weight="medium" numberOfLines={1}>
                     {dataPreview}
                   </T>
                 </View>
@@ -1194,8 +1194,11 @@ if (rpc.method === "dw_disconnect") {
   }, [pendingSign, respondRpc]);
 
   if (!isUnlocked) {
-    router.replace("/unlock");
-    return null;
+    // Navigation is a side effect and must not happen during render — doing
+    // so throws "Cannot update a component while rendering a different
+    // component". <Redirect> performs the same navigation as an effect,
+    // which is the supported way to bounce an unauthenticated route.
+    return <Redirect href="/unlock" />;
   }
 
   const hasData = !!pendingTx && typeof pendingTx.tx.data === "string" && pendingTx.tx.data !== "0x";
@@ -1286,6 +1289,23 @@ if (rpc.method === "dw_disconnect") {
           }
         }}
         onShouldStartLoadWithRequest={(req) => {
+          // Non-http(s) schemes are app-launch links: t.me redirects to
+          // tg://, x.com to twitter://, and so on. A WebView can't load
+          // those, and blindly handing them to Linking.openURL throws
+          // "Unable to open URL … add <scheme> to LSApplicationQueriesSchemes"
+          // — which is where those console warnings came from.
+          //
+          // We check first, open only if the app is actually installed, and
+          // otherwise stay on the page silently. The web version of the site
+          // works fine, so failing to launch a native app is a non-event and
+          // shouldn't surface as an error to the user.
+          if (req.url && !/^https?:/i.test(req.url) && !/^about:/i.test(req.url)) {
+            Linking.canOpenURL(req.url)
+              .then((ok) => (ok ? Linking.openURL(req.url) : null))
+              .catch(() => {});
+            return false;
+          }
+
           const wantsNewWindow = (req as any).targetFrame === false;
           if (wantsNewWindow && req.url) {
             const clean = stripDw(req.url);

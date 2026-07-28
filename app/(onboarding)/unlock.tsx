@@ -35,6 +35,23 @@ export default function Unlock() {
 
   const didAutoBio = useRef(false);
   const shakeX = useRef(new Animated.Value(0)).current;
+  // Drives the dot pulse while the vault unlocks — see the dots block below.
+  const unlockPulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!busy) {
+      unlockPulse.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(unlockPulse, { toValue: 0, duration: 480, useNativeDriver: true }),
+        Animated.timing(unlockPulse, { toValue: 1, duration: 480, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [busy, unlockPulse]);
 
   const dots = useMemo(
     () => Array.from({ length: 6 }).map((_, i) => i < pin.length),
@@ -183,27 +200,37 @@ export default function Unlock() {
       <View style={{ flex: 1 }}>
         <View style={{ height: SPACING.xxl }} />
 
-        <T weight="bold" style={{ fontSize: 34, lineHeight: 40, letterSpacing: -1 }}>
+        <T variant="display">
           Unlock
         </T>
 
         <View style={{ height: SPACING.sm }} />
 
-        <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23 }}>
+        <T color={theme.muted} variant="body">
           Enter your passcode to access your wallet.
         </T>
 
         <View style={{ height: SPACING.xxl }} />
 
-        {/* Dots — shake on a wrong passcode */}
+        {/* Dots — shake on a wrong passcode, and gently pulse while the
+            vault is being unlocked. The pulse IS the progress indicator:
+            all six are already filled at that point, so animating them says
+            "working" without needing a word for it. The old copy said
+            "Decrypting locally…", which is accurate but reads as jargon to
+            anyone who isn't technical — and on a lock screen, unexplained
+            technical language reads as something going wrong. */}
         <Animated.View
           style={{
             flexDirection: "row",
-            gap: 16,
+            gap: 14,
             justifyContent: "center",
+            opacity: busy ? unlockPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] }) : 1,
             transform: [
               {
                 translateX: shakeX.interpolate({ inputRange: [-1, 0, 1], outputRange: [-8, 0, 8] }),
+              },
+              {
+                scale: busy ? unlockPulse.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1.02] }) : 1,
               },
             ],
           }}
@@ -212,50 +239,68 @@ export default function Unlock() {
             <View
               key={i}
               style={{
-                width: 15,
-                height: 15,
+                width: 13,
+                height: 13,
                 borderRadius: 999,
-                backgroundColor: filled ? theme.accent : theme.border,
+                backgroundColor: filled ? theme.accent : "transparent",
+                borderWidth: filled ? 0 : 1.5,
+                borderColor: theme.border,
               }}
             />
           ))}
         </Animated.View>
 
-        <View style={{ height: 32, alignItems: "center", justifyContent: "center" }}>
-          {error ? (
-            <T variant="caption" color={theme.danger}>
+        {/* Reserved height so the keypad never shifts when a message
+            appears — layout jump on an error feels like a glitch. */}
+        {/* One reserved slot under the dots for BOTH the error message and
+            the unlock spinner — same height either way, so the keypad never
+            shifts. A small inline spinner is all this needs: the dots above
+            are already pulsing, and key derivation is a couple of seconds,
+            not a page load. */}
+        <View style={{ height: 30, alignItems: "center", justifyContent: "center" }}>
+          {busy ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : error ? (
+            <T variant="caption" weight="semibold" color={theme.danger}>
               {error}
             </T>
-          ) : busy ? (
-            <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-              <ActivityIndicator size="small" />
-              <T variant="caption" color={theme.muted}>
-                Decrypting locally…
-              </T>
-            </View>
           ) : null}
         </View>
 
         <View style={{ height: SPACING.xl }} />
 
-        {/* Keypad — flat, no borders */}
-        <View style={{ gap: SPACING.md }}>
+        {/* Keypad — circular keys, which is what every native lock screen
+            uses. Round reads as "tap target"; the old rounded-squares read
+            as cards or tiles. Digits are light-weight and large, so the
+            numbers feel like typography rather than buttons with labels. */}
+        <View style={{ gap: 18, alignItems: "center" }}>
           {[
             ["1", "2", "3"],
             ["4", "5", "6"],
             ["7", "8", "9"],
             ["bio", "0", "del"],
           ].map((row, r) => (
-            <View key={r} style={{ flexDirection: "row", gap: SPACING.md }}>
+            <View key={r} style={{ flexDirection: "row", gap: 26 }}>
               {row.map((k) => {
                 const isDel = k === "del";
                 const isBio = k === "bio";
-                const disabled = (isBio && !bioReady) || busy;
+                const isAction = isDel || isBio;
+                // The biometric key holds its slot even when unavailable, so
+                // the grid never reflows between devices.
+                const hidden = isBio && !bioReady;
+                const disabled = hidden || busy;
 
                 return (
                   <Pressable
                     key={k}
                     disabled={disabled}
+                    accessibilityRole="button"
+                    // Say the real modality ("Unlock with Face ID"), not a
+                    // generic "biometrics" — that's what bioLabel is for now
+                    // that the duplicate text button is gone.
+                    accessibilityLabel={
+                      isBio ? `Unlock with ${bioLabel}` : isDel ? "Delete last digit" : k
+                    }
                     onPress={() => {
                       if (isDel) delDigit();
                       else if (isBio) doBiometricUnlock();
@@ -263,21 +308,31 @@ export default function Unlock() {
                     }}
                     style={({ pressed }) => [
                       {
-                        flex: 1,
-                        height: 60,
-                        borderRadius: 18,
-                        backgroundColor: pressed && !disabled ? theme.border : theme.surface2,
+                        width: 72,
+                        height: 72,
+                        borderRadius: 999,
                         alignItems: "center",
                         justifyContent: "center",
-                        opacity: !bioReady && isBio ? 0 : busy ? 0.65 : 1,
+                        // Action keys stay bare — only digits get a surface,
+                        // so the eye goes to the numbers.
+                        backgroundColor: isAction
+                          ? pressed && !disabled
+                            ? theme.surface2
+                            : "transparent"
+                          : pressed && !disabled
+                          ? theme.border
+                          : theme.surface2,
+                        opacity: hidden ? 0 : busy ? 0.5 : 1,
                       },
                     ]}
                   >
                     {isBio ? (
-                      <Ionicons name={bioIcon} size={20} color={theme.text} />
+                      <Ionicons name={bioIcon} size={26} color={theme.text} />
+                    ) : isDel ? (
+                      <Ionicons name="backspace-outline" size={24} color={theme.text} />
                     ) : (
-                      <T weight="semibold" style={{ fontSize: 20 }}>
-                        {isDel ? "⌫" : k}
+                      <T weight="regular" style={{ fontSize: 30, lineHeight: 36 }}>
+                        {k}
                       </T>
                     )}
                   </Pressable>
@@ -287,29 +342,14 @@ export default function Unlock() {
           ))}
         </View>
 
-        {/* Auto-submits at 6 digits — no separate Unlock button needed. */}
-        <View style={{ marginTop: "auto", paddingTop: SPACING.xl, alignItems: "center" }}>
-          {bioReady ? (
-            <Pressable
-              disabled={busy}
-              onPress={doBiometricUnlock}
-              style={({ pressed }) => ({
-                alignSelf: "center",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                padding: SPACING.md,
-                opacity: pressed ? 0.6 : busy ? 0.6 : 1,
-              })}
-            >
-              <Ionicons name={bioIcon} size={15} color={theme.muted} />
-              <T variant="caption" weight="semibold" color={theme.muted}>
-                Use {bioLabel}
-              </T>
-            </Pressable>
-          ) : null}
-        </View>
+        {/* Auto-submits at 6 digits — no Unlock button needed. The biometric
+            key in the keypad is the only affordance; the duplicate
+            "Use Face ID" row that used to sit here was the same action
+            twice, three inches apart. */}
+        <View style={{ marginTop: "auto" }} />
       </View>
+
+
     </Screen>
   );
 }

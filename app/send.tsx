@@ -78,6 +78,15 @@ export default function SendScreen() {
 
   const [asset, setAsset] = useState<Asset>(initialAsset);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+
+  // Your other accounts, as send targets. The active one is excluded — a
+  // transfer to yourself just burns gas, and offering it invites the mistake.
+  const allAccounts = useAccounts((s) => s.accounts);
+  const otherAccounts = useMemo(
+    () => allAccounts.filter((a) => a.id !== accountId),
+    [allAccounts, accountId]
+  );
   const [assetQuery, setAssetQuery] = useState("");
 
   const assetList = useMemo<Asset[]>(() => [{ kind: "native" }, ...tokens.map((t) => ({ kind: "token", token: t } as Asset))], [tokens]);
@@ -440,11 +449,36 @@ export default function SendScreen() {
                   <T variant="caption" color={theme.muted}>
                     To
                   </T>
-                  <Pressable onPress={onPasteTo} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1, padding: 6 })}>
-                    <T weight="semibold" color={theme.muted}>
-                      Paste
-                    </T>
-                  </Pressable>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    {/* Send between your own accounts, MetaMask-style. Only
+                        offered when there's somewhere to send to — with a
+                        single account this would be a button that can only
+                        ever produce a self-transfer. */}
+                    {otherAccounts.length > 0 ? (
+                      <Pressable
+                        onPress={() => setAccountPickerOpen(true)}
+                        style={({ pressed }) => ({
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 5,
+                          paddingHorizontal: 8,
+                          paddingVertical: 6,
+                          opacity: pressed ? 0.7 : 1,
+                        })}
+                      >
+                        <Ionicons name="people-outline" size={14} color={theme.accent} />
+                        <T variant="caption" weight="semibold" color={theme.accent}>
+                          My accounts
+                        </T>
+                      </Pressable>
+                    ) : null}
+
+                    <Pressable onPress={onPasteTo} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1, padding: 6 })}>
+                      <T variant="caption" weight="semibold" color={theme.muted}>
+                        Paste
+                      </T>
+                    </Pressable>
+                  </View>
                 </View>
 
                 <View
@@ -697,6 +731,92 @@ export default function SendScreen() {
             <View style={{ height: SPACING.md }} />
 
             <Button title="Done" onPress={() => router.back()} />
+          </Animated.View>
+        ) : null}
+
+        {/* Own-accounts picker. Rendered as an in-screen overlay rather than
+            a native Modal — Send is already presented as a modal route, and
+            stacking a second native modal on top is what froze touch
+            handling elsewhere in this app. */}
+        {accountPickerOpen ? (
+          <Animated.View
+            entering={FadeIn.duration(160)}
+            style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, paddingTop: insets.top }]}
+          >
+            <View style={{ paddingHorizontal: SPACING.lg }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <T variant="h1">Send to my account</T>
+                <Pressable
+                  onPress={() => setAccountPickerOpen(false)}
+                  style={({ pressed }) => ({
+                    width: 38,
+                    height: 38,
+                    borderRadius: 14,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: theme.surface2,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                  accessibilityLabel="Close"
+                >
+                  <Ionicons name="close" size={18} color={theme.text} />
+                </Pressable>
+              </View>
+
+              <View style={{ height: SPACING.sm }} />
+              <T variant="caption" color={theme.muted}>
+                Transfers between your own accounts still pay a network fee.
+              </T>
+              <View style={{ height: SPACING.md }} />
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingBottom: Math.max(insets.bottom, SPACING.lg) }}
+            >
+              <View style={{ gap: SPACING.sm }}>
+                {otherAccounts.map((a) => (
+                  <Pressable
+                    key={a.id}
+                    onPress={() => {
+                      setTo(a.address);
+                      setAccountPickerOpen(false);
+                    }}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: SPACING.md,
+                      padding: SPACING.md,
+                      borderRadius: RADIUS.xl,
+                      backgroundColor: theme.surface2,
+                      opacity: pressed ? 0.9 : 1,
+                    })}
+                  >
+                    <View
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: RADIUS.md,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: theme.bg,
+                      }}
+                    >
+                      <Ionicons name="wallet-outline" size={18} color={theme.text} />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T weight="semibold" numberOfLines={1}>
+                        {a.label}
+                      </T>
+                      <T variant="caption" color={theme.muted} numberOfLines={1}>
+                        {a.address}
+                      </T>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={theme.muted} />
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
           </Animated.View>
         ) : null}
 

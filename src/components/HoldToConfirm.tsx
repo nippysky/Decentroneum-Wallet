@@ -1,7 +1,8 @@
 // src/ui/HoldToConfirm.tsx
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, Text, ViewStyle } from "react-native";
+import { Animated, Pressable, ViewStyle } from "react-native";
+import { T } from "@/src/components/T";
 import { useTheme } from "@/src/theme/ThemeProvider";
 
 export function HoldToConfirm({
@@ -90,15 +91,9 @@ export function HoldToConfirm({
           opacity: 0.22,
         }}
       />
-      <Text
-        style={{
-          color: theme.bg,
-          fontSize: 16,
-          fontFamily: "Lexend_600SemiBold",
-        }}
-      >
+      <T weight="semibold" style={{ color: theme.bg, fontSize: 15 }}>
         {isHolding ? holdingTitle : title}
-      </Text>
+      </T>
     </Pressable>
   );
 }

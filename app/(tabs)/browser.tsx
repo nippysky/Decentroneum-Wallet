@@ -1,5 +1,6 @@
 // app/(tabs)/browser.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { FONT } from "@/src/theme/typography";
 import { Image, Pressable, RefreshControl, ScrollView, TextInput, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -246,6 +247,7 @@ export default function Browser() {
       <ScrollView
         contentContainerStyle={{ paddingBottom: SPACING.xxl }}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={theme.muted} />}
       >
         <View>
@@ -283,7 +285,7 @@ export default function Browser() {
                 minWidth: 0,
                 color: theme.text,
                 fontSize: 16,
-                fontFamily: "Lexend_500Medium",
+                fontFamily: FONT.medium,
                 paddingVertical: 6,
               }}
             />

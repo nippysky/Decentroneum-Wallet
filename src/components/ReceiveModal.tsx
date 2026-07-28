@@ -4,6 +4,7 @@
 // detail page. Self-contained (manages its own copy toast) so callers don't
 // need to wire that up themselves.
 import React, { useRef, useState } from "react";
+import { toast } from "@/src/state/toast";
 import { Modal, Pressable, Share, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import * as Clipboard from "expo-clipboard";
@@ -14,7 +15,6 @@ import { T } from "@/src/components/T";
 import { Button } from "@/src/components/Button";
 import { IconButton } from "@/src/components/IconButton";
 import { DragHandle } from "@/src/components/DragHandle";
-import { Toast } from "@/src/components/Toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { RADIUS, SPACING } from "@/src/theme/tokens";
 
@@ -32,16 +32,10 @@ export function ReceiveModal({
 }) {
   const { theme } = useTheme();
 
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
-  const toastTimerRef = useRef<number | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setToastVisible(true);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastVisible(false), 1300) as unknown as number;
-  };
+  // One toast, app-wide: src/state/toast.ts + <ToastHost/> at the root.
+  // No local message/visible/timer state to keep in sync.
+  const showToast = (msg: string) => toast.info(msg);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -132,8 +126,6 @@ export function ReceiveModal({
             <Button title="Done" onPress={onClose} />
           </Pressable>
         </Pressable>
-
-        <Toast message={toastMsg} visible={toastVisible} bottomOffset={24} />
       </View>
     </Modal>
   );

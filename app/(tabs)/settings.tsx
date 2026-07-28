@@ -1,5 +1,6 @@
 // app/(tabs)/settings.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "@/src/state/toast";
 import { ActivityIndicator, Modal, Pressable, Switch, View, ScrollView } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { BlurView } from "expo-blur";
@@ -10,7 +11,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
 import { Button } from "@/src/components/Button";
-import { Toast } from "@/src/components/Toast";
 import { HoldToConfirm } from "@/src/components/HoldToConfirm";
 import { useTheme, Mode } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
@@ -448,23 +448,16 @@ export default function Settings() {
   const [phrase, setPhrase] = useState<string>("");
 
   // Toast
-  const [toastMsg, setToastMsg] = useState("");
-  const [toastVisible, setToastVisible] = useState(false);
 
   const autoHideTimerRef = useRef<number | null>(null);
-  const toastTimerRef = useRef<number | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setToastVisible(true);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastVisible(false), 1300) as unknown as number;
-  };
+  // One toast, app-wide: src/state/toast.ts + <ToastHost/> at the root.
+  // No local message/visible/timer state to keep in sync.
+  const showToast = (msg: string) => toast.info(msg);
 
   useEffect(() => {
     return () => {
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -629,27 +622,6 @@ export default function Settings() {
             </View>
           </Card>
 
-          {/* Erase — deliberately NOT a card. It's a single quiet red line;
-              all the weight (warnings, account count, hold-to-confirm)
-              lives in the modal it opens, so this destructive action stops
-              dominating the screen. */}
-          <Pressable
-            onPress={() => setEraseOpen(true)}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              paddingVertical: SPACING.md,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Ionicons name="trash-outline" size={16} color={theme.danger} />
-            <T weight="semibold" color={theme.danger}>
-              Erase wallet
-            </T>
-          </Pressable>
-
           {/* About */}
           <Card>
             <SectionHeader title="About" subtitle="Decent Wallet by Decentroneum." />
@@ -671,7 +643,7 @@ export default function Settings() {
               subtitle="Community & support"
               onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://t.me/DecentroneumGroupChat" } })}
             />
-            <Row icon="information-circle-outline" title="Version" subtitle="2.0.0" />
+            <Row icon="information-circle-outline" title="Version" subtitle="1.0.0" />
           </Card>
 
           {/* Legal */}
@@ -688,6 +660,27 @@ export default function Settings() {
               onPress={() => router.push({ pathname: "/browser/web" as any, params: { url: "https://decentroneum.com/terms" } })}
             />
           </Card>
+
+          {/* Erase — deliberately NOT a card. It's a single quiet red line;
+              all the weight (warnings, account count, hold-to-confirm)
+              lives in the modal it opens, so this destructive action stops
+              dominating the screen. */}
+          <Pressable
+            onPress={() => setEraseOpen(true)}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              paddingVertical: SPACING.md,
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Ionicons name="trash-outline" size={16} color={theme.danger} />
+            <T weight="semibold" color={theme.danger}>
+              Erase wallet
+            </T>
+          </Pressable>
         </View>
       </ScrollView>
 
@@ -776,7 +769,6 @@ export default function Settings() {
           </Pressable>
 
           {/* ✅ Toast inside Modal so it shows ABOVE the modal content */}
-          <Toast message={toastMsg} visible={toastVisible} bottomOffset={24} />
         </View>
       </Modal>
 
@@ -847,7 +839,6 @@ export default function Settings() {
       />
 
       {/* ✅ Global toast only when phrase modal is NOT open (prevents duplicates) */}
-      {!toastInsidePhraseModal ? <Toast message={toastMsg} visible={toastVisible} /> : null}
     </Screen>
   );
 }

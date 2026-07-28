@@ -21,20 +21,23 @@ import { SessionRequestSheet } from "@/src/features/walletconnect/SessionRequest
 import { ToastHost } from "@/src/components/ToastHost";
 import {
   useFonts,
-  Lexend_400Regular,
-  Lexend_500Medium,
-  Lexend_600SemiBold,
-  Lexend_700Bold,
-} from "@expo-google-fonts/lexend";
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
+import { JetBrainsMono_400Regular } from "@expo-google-fonts/jetbrains-mono";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Lexend_400Regular,
-    Lexend_500Medium,
-    Lexend_600SemiBold,
-    Lexend_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    // Addresses / hashes / recovery phrases — see FONT.mono in typography.ts
+    JetBrainsMono_400Regular,
   });
 
   const hydrate = useSession((s) => s.hydrate);

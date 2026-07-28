@@ -25,16 +25,25 @@ export type Theme = {
   shadow: string;
 };
 
-// Light mode does NOT use the neon mark color (#4DEE54) as a UI accent —
-// full-brightness neon reads loud/plasticky against a light background (it
-// only "pops" correctly against dark ink, which is why the brand mark itself
-// is neon-on-dark or dark-on-neon, never neon-on-white). For light-mode UI
-// accents (buttons, progress indicators, focus states, positive amounts),
-// use a deep shade of the same brand hue instead — same family, same
-// identity, just tuned for the surface it sits on. Neon is reserved for dark
-// mode and the literal brand mark (BRAND.neon below), never used as a light
-// mode accent color.
-const LIGHT_ACCENT = "#1B7A3B";
+// THE BRAND IS TWO COLORS. Nothing else.
+//
+//   Neon    #4DEE54  — the dark-mode accent (13.1:1 on the dark field)
+//   Onyx    #131418  — the light-mode accent (16.6:1 on the cream field)
+//
+// They invert: whichever surface you're on, the accent is the other one.
+//
+// Onyx is a near-black charcoal, not a green. That's deliberate — it reads
+// as quiet, expensive restraint, and it lets the neon be the *only* colour
+// that ever shouts. This replaced a mid-tone forest green (#1B7A3B) which
+// behaved as an unwanted third brand colour: too dark to feel like the neon,
+// too saturated to feel like the ink, and slightly grubby on cream.
+//
+// Neon is never a light-mode accent — at full brightness on a light surface
+// it reads loud and plasticky. It only pops against dark, which is why the
+// brand mark is only ever neon-on-dark or dark-on-neon.
+//
+// There is no third accent colour. If you reach for one, use one of these.
+const LIGHT_ACCENT = "#131418";
 
 export const light: Theme = {
   bg: "#FAF7F2",
