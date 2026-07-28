@@ -221,18 +221,6 @@ export default function Welcome() {
           <Button title="Create a new wallet" onPress={() => router.push("/(onboarding)/create")} />
           <Button title="I already have a wallet" variant="outline" onPress={() => router.push("/(onboarding)/import")} />
 
-          <T
-            variant="caption"
-            color={theme.muted}
-            style={{
-              textAlign: "center",
-              marginTop: SPACING.sm,
-              paddingHorizontal: SPACING.md,
-            }}
-          >
-            Keep your recovery phrase private. Anyone with it can access your funds.
-          </T>
-
           {/* Legal consent shown BEFORE wallet creation, not buried in
               Settings — both app stores expect terms to be reachable at the
               point of sign-up for a financial app. */}
