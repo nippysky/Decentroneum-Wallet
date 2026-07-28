@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "primaryColor": "#4DEE54",
     "backgroundColor": "#060807",
-    "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem \u2014 send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
+    "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem — send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.decentroneum.wallet",
@@ -21,6 +21,8 @@
       },
       "associatedDomains": [
         "applinks:decentroneum.com",
+        "applinks:app.decentroneum.com",
+        "applinks:decentroneum.com",
         "applinks:app.decentroneum.com"
       ],
       "config": {
@@ -31,11 +33,14 @@
         "NSCameraUsageDescription": "Decent Wallet uses the camera only to scan WalletConnect QR codes so you can connect to apps shown on another screen. Nothing is recorded or uploaded.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
         ]
       },
       "entitlements": {
         "com.apple.developer.associated-domains": [
+          "applinks:decentroneum.com",
+          "applinks:app.decentroneum.com",
           "applinks:decentroneum.com",
           "applinks:app.decentroneum.com"
         ]
@@ -45,6 +50,24 @@
         "NSPrivacyTrackingDomains": [],
         "NSPrivacyCollectedDataTypes": [],
         "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "35F9.1"
+            ]
+          },
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
             "NSPrivacyAccessedAPITypeReasons": [
@@ -85,9 +108,37 @@
         "POST_NOTIFICATIONS",
         "VIBRATE",
         "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "CAMERA",
+        "android.permission.CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT"
       ],
       "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "decentroneum.com",
+              "pathPrefix": "/wc"
+            },
+            {
+              "scheme": "https",
+              "host": "app.decentroneum.com",
+              "pathPrefix": "/wc"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
         {
           "action": "VIEW",
           "autoVerify": true,
@@ -168,6 +219,12 @@
         "projectId": "e6292d8e-cc92-4c2d-9221-4949b04f981d"
       }
     },
-    "owner": "nippysky"
+    "owner": "nippysky",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e6292d8e-cc92-4c2d-9221-4949b04f981d"
+    }
   }
 }
