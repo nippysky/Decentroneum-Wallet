@@ -1,7 +1,7 @@
 // app/(tabs)/settings.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/src/state/toast";
-import { ActivityIndicator, Modal, Pressable, Switch, View, ScrollView } from "react-native";
+import { Pressable, Switch, View, ScrollView } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import * as LocalAuthentication from "expo-local-authentication";
@@ -20,6 +20,7 @@ import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
 import { unlockVault } from "@/src/lib/crypto/vault";
 import { AccountManager } from "@/src/features/accounts/AccountManager";
+import { seedColor, seedTag } from "@/src/features/accounts/seedVisuals";
 import { useNotifications } from "@/src/state/notifications";
 import { useNotificationFeed } from "@/src/state/notificationsFeed";
 import { getExpoPushToken, unregisterPush } from "@/src/lib/notifications/register";
@@ -235,12 +236,14 @@ function PasscodeSheet({
 function EraseWalletSheet({
   visible,
   accounts,
+  seeds,
   busy,
   onConfirm,
   onCancel,
 }: {
   visible: boolean;
-  accounts: { id: string; label: string }[];
+  accounts: { id: string; label: string; seedId: string }[];
+  seeds: { id: string; label: string }[];
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -250,7 +253,7 @@ function EraseWalletSheet({
   return (
     <FullSheet
       visible={visible}
-      title="Erase all wallets from this device?"
+      title="Erase everything from this device?"
       // No backdrop-dismiss anywhere in this app, and especially not here:
       // the only ways out are Cancel and the hardware back button.
       onClose={busy ? () => {} : onCancel}
@@ -280,20 +283,40 @@ function EraseWalletSheet({
           <Ionicons name="warning-outline" size={24} color={theme.danger} />
         </View>
 
+        {/* Precise about what is destroyed. Accounts are not deleted — they
+            cannot be — but this device's copy of every recovery phrase is,
+            and that is irreversible. The user's real decision is "do I have
+            all these words?", so the copy points straight at it. */}
         <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23 }}>
-          This permanently deletes every account stored on this device — not just the one you&apos;re
-          currently viewing. It cannot be undone. Anything you haven&apos;t backed up with its recovery
-          phrase will be gone for good.
+          This deletes every recovery phrase stored on this device — not just the account you&apos;re
+          viewing. Your accounts still exist on the blockchain, but this app will have no way to
+          reach them. Anything whose words you haven&apos;t written down is gone for good.
         </T>
 
-        <View style={{ borderRadius: RADIUS.lg, backgroundColor: theme.surface2, padding: SPACING.md, gap: 6 }}>
+        {/* Grouped by phrase, because that is the unit of recovery. Seeing
+            "Recovery phrase 2 — do you have these words?" is the prompt that
+            actually stops someone erasing a backup they never wrote down. */}
+        <View style={{ borderRadius: RADIUS.lg, backgroundColor: theme.surface2, padding: SPACING.md, gap: SPACING.sm }}>
           <T variant="caption" weight="semibold" color={theme.muted}>
-            {accounts.length} account{accounts.length === 1 ? "" : "s"} will be removed
+            {accounts.length} account{accounts.length === 1 ? "" : "s"} across {seeds.length} recovery
+            phrase{seeds.length === 1 ? "" : "s"} will be removed
           </T>
-          {accounts.map((a) => (
-            <T key={a.id} weight="semibold" numberOfLines={1}>
-              {a.label}
-            </T>
+          {seeds.map((seed, i) => (
+            <View key={seed.id} style={{ gap: 2 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: seedColor(i) }} />
+                <T variant="caption" weight="semibold" color={theme.muted}>
+                  {seedTag(i)} · {seed.label}
+                </T>
+              </View>
+              {accounts
+                .filter((a) => a.seedId === seed.id)
+                .map((a) => (
+                  <T key={a.id} weight="semibold" numberOfLines={1} style={{ paddingLeft: 9 }}>
+                    {a.label}
+                  </T>
+                ))}
+            </View>
           ))}
         </View>
       </View>
@@ -335,6 +358,7 @@ export default function Settings() {
 
   const resetDeviceWallet = useSession((s) => s.resetDeviceWallet);
   const accountsForErase = useAccounts((s) => s.accounts);
+  const seeds = useAccounts((s) => s.seeds);
   const [eraseBusy, setEraseBusy] = useState(false);
 
 
@@ -349,6 +373,22 @@ export default function Settings() {
   const [phraseOpen, setPhraseOpen] = useState(false);
   const [phraseRevealed, setPhraseRevealed] = useState(false);
   const [phrase, setPhrase] = useState<string>("");
+  /**
+   * What the revealed phrase is and what it covers. A wallet can hold several
+   * phrases, and each covers only its own accounts — so the screen must name
+   * the phrase and say how many other phrases are NOT covered by it. Someone
+   * who writes down one phrase believing they are done is the failure this
+   * exists to prevent.
+   */
+  const [phraseMeta, setPhraseMeta] = useState<{
+    label: string;
+    accountCount: number;
+    otherSeedCount: number;
+  } | null>(null);
+  /** Phrase chooser, only reachable when the wallet holds more than one. */
+  const [seedPickerOpen, setSeedPickerOpen] = useState(false);
+  /** Held between the passcode check and the phrase choice, then wiped. */
+  const stepUpKeyRef = useRef<Uint8Array | null>(null);
 
   // Toast
 
@@ -391,6 +431,18 @@ export default function Settings() {
     return mode === "dark" ? "Dark" : "Light";
   }, [mode, resolvedMode]);
 
+  // Block screenshots / recording for as long as the phrase sheet is open.
+  //
+  // These must stay ABOVE the redirect below. Locking the wallet flips
+  // isUnlocked to false while this screen is still mounted, and a hook that
+  // runs on one render but not the next makes React throw "rendered fewer
+  // hooks than expected" — a hard crash, on the security screen.
+  useScreenGuard(phraseOpen);
+  useScreenshotWarning(
+    () => toast.error("Screenshot saved to your photos — delete it. Photos sync to the cloud."),
+    phraseOpen
+  );
+
   if (!isUnlocked) return <Redirect href="/unlock" />;
 
   const beginEnableBiometrics = async () => {
@@ -410,17 +462,37 @@ export default function Settings() {
     await setBiometricEnabled(false);
   };
 
-  // Block screenshots / recording for as long as the phrase sheet is open.
-  useScreenGuard(phraseOpen);
-  useScreenshotWarning(
-    () => toast.error("Screenshot saved to your photos — delete it. Photos sync to the cloud."),
-    phraseOpen
-  );
+  /** Hand a decrypted phrase to the reveal sheet, always hidden to start. */
+  const showPhrase = (revealed: {
+    mnemonic: string;
+    seedLabel: string;
+    accountCount: number;
+    otherSeedCount: number;
+  }) => {
+    setPhrase(revealed.mnemonic.trim());
+    setPhraseMeta({
+      label: revealed.seedLabel,
+      accountCount: revealed.accountCount,
+      otherSeedCount: revealed.otherSeedCount,
+    });
+    setPhraseRevealed(false);
+    setPhraseOpen(true);
+  };
 
   const closePhrase = () => {
     setPhraseOpen(false);
     setPhraseRevealed(false);
     setPhrase("");
+    setPhraseMeta(null);
+    // The step-up key has done its job. Dropping the reference here means the
+    // decrypted vault key isn't left reachable from this screen's closure
+    // after the sheet is gone.
+    stepUpKeyRef.current = null;
+  };
+
+  const closeSeedPicker = () => {
+    setSeedPickerOpen(false);
+    stepUpKeyRef.current = null;
   };
 
   return (
@@ -485,7 +557,14 @@ export default function Settings() {
             />
 
 
-            <Row icon="key-outline" title="View recovery phrase" subtitle="Requires passcode" onPress={() => setViewPhrasePending(true)} />
+            <Row
+              icon="key-outline"
+              title={seeds.length > 1 ? "View recovery phrases" : "View recovery phrase"}
+              subtitle={
+                seeds.length > 1 ? `${seeds.length} phrases · requires passcode` : "Requires passcode"
+              }
+              onPress={() => setViewPhrasePending(true)}
+            />
           </Card>
 
           {/* Appearance */}
@@ -581,6 +660,13 @@ export default function Settings() {
               Erase wallet
             </T>
           </Pressable>
+
+          {/* Erase is all-or-nothing, and someone looking for "get rid of one
+              account" will find this row first and reasonably assume it's the
+              only option. Say where the smaller, reversible action lives. */}
+          <T variant="caption" color={theme.muted} style={{ textAlign: "center", marginTop: -SPACING.sm }}>
+            To hide a single account or remove one recovery phrase, open Accounts above.
+          </T>
         </View>
       </ScrollView>
 
@@ -591,18 +677,76 @@ export default function Settings() {
         subtitle="Enter your passcode to reveal your recovery phrase. Never share it with anyone."
         onCancel={() => setViewPhrasePending(false)}
         onConfirm={async (pin) => {
-          // Step-up auth: re-verify the passcode even though the app is already
-          // unlocked, then decrypt just the active account's mnemonic.
-          const { key, activeAccountId } = await unlockVault(pin);
-          const mnemonic = await useAccounts.getState().revealMnemonic(key, activeAccountId);
-          if (!mnemonic) throw new Error("Mnemonic unavailable");
-
-          setPhrase(mnemonic.trim());
-          setPhraseRevealed(false);
-          setPhraseOpen(true);
+          // Step-up auth: re-verify the passcode even though the app is
+          // already unlocked, then decrypt only what was asked for.
+          const { key, seeds: unlockedSeeds, activeAccountId } = await unlockVault(pin);
           setViewPhrasePending(false);
+
+          // More than one phrase means there is a real choice to make, and
+          // guessing it for the user is how they end up backing up the wrong
+          // one. Ask.
+          if (unlockedSeeds.length > 1) {
+            stepUpKeyRef.current = key;
+            setSeedPickerOpen(true);
+            return;
+          }
+
+          const revealed = await useAccounts.getState().revealMnemonic(key, activeAccountId);
+          if (!revealed?.mnemonic) throw new Error("Recovery phrase unavailable");
+          showPhrase(revealed);
         }}
       />
+
+      {/* Which phrase? Only ever shown when the wallet holds more than one.
+          Listing them with the same colour and P-tag used in the accounts
+          list is what lets someone match "the green one" here to the group
+          they saw there. */}
+      <FullSheet visible={seedPickerOpen} title="Choose a recovery phrase" onClose={closeSeedPicker}>
+        <T color={theme.muted}>
+          Each phrase backs up only the accounts under it. Back up all {seeds.length} to cover this
+          wallet.
+        </T>
+        <View style={{ height: SPACING.lg }} />
+        <View style={{ gap: SPACING.sm }}>
+          {seeds.map((seed, i) => (
+            <Pressable
+              key={seed.id}
+              onPress={async () => {
+                const key = stepUpKeyRef.current;
+                if (!key) return;
+                try {
+                  const revealed = await useAccounts.getState().revealSeed(key, seed.id);
+                  setSeedPickerOpen(false);
+                  showPhrase(revealed);
+                } catch {
+                  toast.error("Couldn't open that recovery phrase");
+                }
+              }}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: SPACING.md,
+                padding: SPACING.md,
+                borderRadius: RADIUS.xl,
+                backgroundColor: theme.surface2,
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <View style={{ width: 4, height: 34, borderRadius: 2, backgroundColor: seedColor(i) }} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <T weight="semibold" numberOfLines={1}>
+                  {seed.label}
+                </T>
+                <T variant="caption" color={theme.muted}>
+                  {seedTag(i)} · {seed.accountCount} account{seed.accountCount === 1 ? "" : "s"}
+                  {seed.isPrimary ? " · original" : ""}
+                </T>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.muted} />
+            </Pressable>
+          ))}
+        </View>
+      </FullSheet>
 
       {/* Recovery phrase — full screen, capture-blocked, word grid.
           Identical presentation to the onboarding backup screen, because it
@@ -672,7 +816,16 @@ export default function Settings() {
         <View style={{ height: SPACING.md }} />
 
         <T variant="caption" color={theme.muted} style={{ textAlign: "center" }}>
-          Hides automatically after 30 seconds.
+          {phraseMeta
+            ? `Restores ${phraseMeta.accountCount} account${
+                phraseMeta.accountCount === 1 ? "" : "s"
+              } under ${phraseMeta.label}.` +
+              (phraseMeta.otherSeedCount > 0
+                ? ` It does NOT cover your other ${phraseMeta.otherSeedCount} phrase${
+                    phraseMeta.otherSeedCount === 1 ? "" : "s"
+                  } — back ${phraseMeta.otherSeedCount === 1 ? "that one" : "those"} up too.`
+                : " Hides after 30 seconds.")
+            : "Hides after 30 seconds."}
         </T>
       </FullSheet>
 
@@ -711,6 +864,7 @@ export default function Settings() {
       <EraseWalletSheet
         visible={eraseOpen}
         accounts={accountsForErase}
+        seeds={seeds}
         busy={eraseBusy}
         onCancel={() => (eraseBusy ? null : setEraseOpen(false))}
         onConfirm={async () => {

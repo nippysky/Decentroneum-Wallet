@@ -9,7 +9,7 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
-import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
+import { getAccountSecret } from "@/src/lib/crypto/vault";
 import { getSigner } from "@/src/lib/chain/wallet";
 import { fetchWithTimeout, withTimeoutOr } from "@/src/lib/net/http";
 
@@ -51,8 +51,10 @@ export async function registerAddressForPush(opts: { address: string; vaultKey: 
     const timestamp = new Date().toISOString();
     const message = buildRegistrationMessage(opts.address, pushToken, timestamp);
 
-    const mnemonic = await getDecryptedMnemonic(opts.vaultKey, opts.accountId);
-    const signer = getSigner(mnemonic);
+    // Signs a proof of ownership for THIS account's address, so it must use
+    // that account's derivation path.
+    const { mnemonic, path } = await getAccountSecret(opts.vaultKey, opts.accountId);
+    const signer = getSigner(mnemonic, path);
     const signature = await signer.signMessage(message);
 
     await fetchWithTimeout(`${PUSH_SERVER_URL}/register`, {

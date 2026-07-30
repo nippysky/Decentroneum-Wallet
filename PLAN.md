@@ -88,13 +88,47 @@ src/
 
 ---
 
-## 4. Multi-account (dual wallet) architecture
+## 4. Multi-account architecture (SUPERSEDED — see below)
 
-- **VaultV2**: instead of one encrypted mnemonic blob, store an encrypted **account list**: `{ id, label, mnemonicCiphertext, address, order, createdAt }[]`, still under one passcode-derived key (one KDF unlock decrypts the whole vault — one passcode for the whole app, not per-account).
-- Support both **create new** and **import existing** per account slot; minimum 1, soft cap (e.g. 5) to keep UX simple — brief asks for "two," so default UI ships with a clean 2-account switcher but the data model isn't hardcoded to 2.
-- `state/accounts.ts` (zustand): `accounts[]`, `activeAccountId`, `switchAccount()`, `addAccount()`, `removeAccount()`, `renameAccount()`. `state/session.ts` narrows to auth/unlock state only (passcode/biometric/auto-lock) — separation of concerns fixes the current coupling where session also held the single mnemonic.
-- **Migration**: on first launch after upgrade, detect `VaultV1`, decrypt with existing passcode, wrap as a single-item `VaultV2` account list transparently — zero user action required, no re-onboarding.
-- UI: account switcher as a horizontal pill/avatar row at the top of Home (Trust-Wallet-style), each account shows its own address, balance, and independent token list.
+The original plan stored one encrypted mnemonic **per account**. That shipped as
+VaultV2 and was replaced during development, because it got the backup story
+wrong: N accounts meant N phrases to write down and N imports to restore, while
+every user's mental model — formed by MetaMask — says one phrase restores
+everything. Backup failure, not broken cryptography, is how people lose funds.
+
+**What the vault actually is now** (`src/lib/crypto/vault.ts`):
+
+- A vault holds one or more **seeds** (recovery phrases). Each seed owns
+  accounts derived from it at BIP-44 `m/44'/60'/0'/0/N` — the standard path, so
+  the same phrase yields the same addresses in MetaMask, Trust, Rabby, Ledger.
+- "Add account" increments N under one seed. No new phrase, nothing new to back
+  up. Verified against the published Hardhat/Anvil test vectors.
+- Importing a phrase creates a **new seed**, not a loose account — so it gets its
+  own "Add account" and an outside wallet's sub-accounts can all be restored.
+  There is deliberately no "imported account" category (MetaMask has one; it is
+  the category that silently escapes a seed backup).
+- Account records hold no secrets: just `seedId` + `index`. Only seeds are
+  encrypted, one NaCl secretbox each under a single scrypt-derived key.
+- `state/accounts.ts` exposes `accounts[]`, `seeds[]`, `addDerivedAccount()`,
+  `addSeed()`, `removeSeed()`, `revealSeed()`. `state/session.ts` holds only
+  auth state and the in-memory key.
+- **No migration path.** Nothing shipped, so every pre-v4 record is deleted at
+  launch (`purgeLegacyVaults`) and the device lands on onboarding. Once the app
+  is in the stores this stops being acceptable and a format change needs a real
+  migration.
+- UI: accounts are **grouped by phrase**, each group colour-coded with a `P1/P2`
+  tag carried through the accounts list, the Home switcher, the backup screen
+  and the erase confirmation — so which phrase restores which account is never
+  left to inference.
+- **Hide, not delete.** A derived address exists on-chain whether the app shows
+  it or not, so there is no "delete account" — only hide, which keeps the index
+  and unhides to the identical address. MetaMask reaches the same conclusion
+  (derived accounts can only be hidden), though on mobile it offers no hide at
+  all. Removing a whole phrase IS a real removal and carries a warning.
+- Index allocation is LOWEST-FREE, so a gap can never strand an account.
+- Caps: 10 phrases, 50 accounts each. Not cryptographic limits — MetaMask
+  publishes none — just guards against an unnavigable list.
+- Proof: `npm run verify:hd` runs the real vault in Node against 81 assertions.
 
 ---
 
@@ -177,7 +211,7 @@ All four phases above were executed in this session, not just planned:
 - **app.json**: fully rebuilt — real bundle IDs (`com.decentroneum.wallet`), light/dark/tinted iOS icons, Android adaptive + monochrome icons, camera/Face ID/notification permission strings, associated domains, EAS placeholder.
 - **Brand assets**: `icon.png` / `icon-dark.png` / `icon-tinted.png` / adaptive icon layers / splash (light + dark) / favicon / notification icon — all generated pixel-precisely from the supplied hexagon mark, using only the two approved treatments.
 - **Architecture**: `src/` reorganized into `components/`, `features/{accounts,explorer}/`, `lib/{chain,crypto,storage,security,tokens,notifications}/`, `state/`, `theme/` — a real mechanical restructure (not just new folders alongside old ones), verified by a full import-resolution sweep.
-- **Multi-account vault (VaultV2)**: one passcode, N encrypted accounts, transparent migration from the old single-mnemonic vault, in-memory-only key model (mnemonics decrypted on demand, never held longer than a signing operation).
+- **HD multi-seed vault**: one passcode, N recovery phrases, N accounts derived under each at the standard BIP-44 path; in-memory-only key model (phrases decrypted on demand, never held longer than a signing operation). Superseded the per-account-mnemonic VaultV2 — see §4.
 - **Token registry v2**: bundled ETN + DCNT, remote registry fetch with zod validation and offline-safe caching, documented submission → auto-approval → auto-listing pipeline.
 - **Notifications**: permission flow, Settings toggle, and a live balance-diff watcher that fires local notifications on incoming ETN/token transfers.
 - **Explorer tab**: brand-new — network snapshot, per-account activity feed, tx detail sheet, universal address/hash search — replacing the old link-out. Panthart removed everywhere.

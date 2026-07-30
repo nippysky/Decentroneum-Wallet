@@ -27,7 +27,7 @@ export type ListedToken = {
   logoURI?: string;
 };
 
-export const REGISTRY_URL = "https://decentroneum.com/api/token-list.json";
+const REGISTRY_URL = "https://decentroneum.com/api/token-list.json";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 const FETCH_TIMEOUT_MS = 8000;
 

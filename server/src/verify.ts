@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 
 const MAX_SKEW_MS = 5 * 60 * 1000; // 5 minutes
 
-export function buildRegistrationMessage(address: string, pushToken: string, timestamp: string): string {
+function buildRegistrationMessage(address: string, pushToken: string, timestamp: string): string {
   // Must exactly match the message the client signs in
   // src/lib/notifications/register.ts — changing this format is a breaking change.
   return [

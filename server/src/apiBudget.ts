@@ -226,7 +226,7 @@ export function monthlyUsed(provider: string): number {
   return row?.calls ?? 0;
 }
 
-export function monthlyRemaining(provider: string): number {
+function monthlyRemaining(provider: string): number {
   if (config.marketApiMonthlyCap <= 0) return Number.POSITIVE_INFINITY;
   return config.marketApiMonthlyCap - monthlyUsed(provider);
 }

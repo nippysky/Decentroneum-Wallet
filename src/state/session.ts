@@ -56,8 +56,8 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   unlock: async (passcode: string) => {
-    const { key, accounts, activeAccountId } = await unlockVault(passcode);
-    useAccounts.getState().setAccounts(accounts, activeAccountId);
+    const { key, accounts, seeds, activeAccountId } = await unlockVault(passcode);
+    useAccounts.getState().setAccounts(accounts, seeds, activeAccountId);
     set({ isUnlocked: true, vaultKey: key });
   },
 

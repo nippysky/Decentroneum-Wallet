@@ -126,8 +126,18 @@ export function addressFromMnemonic(mnemonic: string): string {
   return ethers.HDNodeWallet.fromPhrase(mnemonic).address;
 }
 
-export function getSigner(mnemonic: string) {
-  return ethers.HDNodeWallet.fromPhrase(mnemonic).connect(getProvider());
+/**
+ * Builds a signer for one account.
+ *
+ * `path` is REQUIRED and must come from the vault (getAccountSecret). With
+ * hierarchical accounts one phrase backs many addresses, so a signer built
+ * from the phrase alone silently derives index 0 — meaning a user on
+ * "Account 3" would sign with Account 1's key and spend Account 1's balance,
+ * with no error anywhere. The path is what makes the signer match the account
+ * the user is actually looking at.
+ */
+export function getSigner(mnemonic: string, path: string) {
+  return ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, path).connect(getProvider());
 }
 
 /** Native ETN balance (as bigint, in wei) */
@@ -179,14 +189,16 @@ export async function estimateFees(opts: {
 
 export async function sendNativeETN(opts: {
   mnemonic: string;
+  /** BIP-44 path for the sending account — see getSigner. */
+  path: string;
   to: string;
   amountEth: string;
 }): Promise<TxResult> {
-  const { mnemonic, to, amountEth } = opts;
+  const { mnemonic, path, to, amountEth } = opts;
 
   if (!ethers.isAddress(to)) throw new Error("Invalid recipient address");
 
-  const signer = getSigner(mnemonic);
+  const signer = getSigner(mnemonic, path);
 
   const tx: ethers.TransactionRequest = {
     to,
@@ -211,17 +223,19 @@ export async function sendNativeETN(opts: {
 
 export async function sendErc20(opts: {
   mnemonic: string;
+  /** BIP-44 path for the sending account — see getSigner. */
+  path: string;
   tokenAddress: string;
   to: string;
   amount: string;
   decimals: number;
 }): Promise<TxResult> {
-  const { mnemonic, tokenAddress, to, amount, decimals } = opts;
+  const { mnemonic, path, tokenAddress, to, amount, decimals } = opts;
 
   if (!ethers.isAddress(tokenAddress)) throw new Error("Invalid token address");
   if (!ethers.isAddress(to)) throw new Error("Invalid recipient address");
 
-  const signer = getSigner(mnemonic);
+  const signer = getSigner(mnemonic, path);
   const c = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
 
   const amountRaw = ethers.parseUnits(amount, decimals);

@@ -79,7 +79,7 @@ export function fireAndForget(p: Promise<unknown> | (() => Promise<unknown>)): v
  * this works on non-fetch promises too (native module calls, SDK methods
  * that talk to the network internally, etc).
  */
-export async function withTimeout<T>(p: Promise<T>, ms = DEFAULT_TIMEOUT_MS): Promise<T> {
+async function withTimeout<T>(p: Promise<T>, ms = DEFAULT_TIMEOUT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

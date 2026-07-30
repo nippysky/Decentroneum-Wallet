@@ -28,9 +28,6 @@ const fire = (p: Promise<void>) => {
 /** Light tap — buttons, keypad keys, toggles. */
 export const hapticTap = () => fire(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
 
-/** Medium thud — destructive or high-commitment actions. */
-export const hapticImpact = () => fire(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-
 /** Selection tick — pickers, tab changes, list selection. */
 export const hapticSelect = () => fire(Haptics.selectionAsync());
 

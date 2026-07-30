@@ -12,11 +12,4 @@ export async function getNativeBalanceWei(address: string): Promise<bigint> {
   return getProvider().getBalance(address);
 }
 
-export async function getBlockNumber(): Promise<number> {
-  return getProvider().getBlockNumber();
-}
 
-export async function getGasPriceWei(): Promise<bigint> {
-  const feeData = await getProvider().getFeeData();
-  return feeData.gasPrice ?? 0n;
-}

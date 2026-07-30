@@ -152,6 +152,3 @@ export const RADIUS = {
   pill: 999,
 } as const;
 
-export function gradientHero(theme: Theme): [string, string] {
-  return theme.bg === dark.bg ? ["#0B1F0D", "#060807"] : ["#EAF9EC", "#FAF7F2"];
-}

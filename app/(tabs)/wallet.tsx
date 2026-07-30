@@ -30,6 +30,7 @@ import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { formatNative2dpFromWei, formatUnits2dp, shortAddr } from "@/src/lib/format";
 import { useAutoRefresh } from "@/src/hooks/useAutoRefresh";
 import { AccountSwitcher } from "@/src/components/AccountSwitcher";
+import { seedColor } from "@/src/features/accounts/seedVisuals";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 
 /* ---------------------------------- Wallet ---------------------------------- */
@@ -49,7 +50,29 @@ export default function Wallet() {
   const isUnlocked = useSession((s) => s.isUnlocked);
   const vaultKey = useSession((s) => s.vaultKey);
   const accounts = useAccounts((s) => s.accounts);
+  const seeds = useAccounts((s) => s.seeds);
   const activeAccount = useAccounts((s) => s.activeAccount());
+
+  // Hidden accounts are excluded here as everywhere: the switcher must show
+  // exactly what the accounts list shows, or switching lands somewhere the
+  // user can't find again.
+  //
+  // Tinting only kicks in past one recovery phrase — with a single phrase
+  // every chip would be the same colour, which is decoration, not information.
+  const switchableAccounts = useMemo(
+    () =>
+      accounts
+        .filter((a) => !a.hidden)
+        .map((a) => ({
+          id: a.id,
+          label: a.label,
+          seedColor:
+            seeds.length > 1
+              ? seedColor(Math.max(0, seeds.findIndex((s) => s.id === a.seedId)))
+              : undefined,
+        })),
+    [accounts, seeds]
+  );
   const tokens = useTokens((s) => s.tokens);
   const address = activeAccount?.address ?? null;
   const accountId = activeAccount?.id ?? null;
@@ -319,7 +342,7 @@ export default function Wallet() {
             <>
               <View style={{ height: SPACING.lg }} />
               <AccountSwitcher
-                accounts={accounts}
+                accounts={switchableAccounts}
                 activeId={accountId}
                 onSwitch={async (a) => {
                   await useAccounts.getState().switchAccount(a.id);

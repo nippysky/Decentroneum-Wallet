@@ -51,7 +51,7 @@ export function Skeleton({
 }
 
 /** A row-shaped skeleton — icon circle + two lines — matching the app's common list-row layout. */
-export function SkeletonRow({ style }: { style?: ViewStyle }) {
+function SkeletonRow({ style }: { style?: ViewStyle }) {
   return (
     <View style={[{ flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12 }, style]}>
       <Skeleton width={40} height={40} radius={20} />
@@ -64,12 +64,3 @@ export function SkeletonRow({ style }: { style?: ViewStyle }) {
   );
 }
 
-export function SkeletonRows({ count = 3, style }: { count?: number; style?: ViewStyle }) {
-  return (
-    <View style={style}>
-      {Array.from({ length: count }).map((_, i) => (
-        <SkeletonRow key={i} />
-      ))}
-    </View>
-  );
-}

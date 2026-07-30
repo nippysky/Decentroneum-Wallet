@@ -35,11 +35,11 @@ export default function Passcode() {
     if (!mnemonic) return;
     setBusy(true);
     try {
-      const { key, accounts, activeAccountId } = await initializeVault(finalPin, {
+      const { key, accounts, seeds, activeAccountId } = await initializeVault(finalPin, {
         mnemonic,
         label: "Account 1",
       });
-      useAccounts.getState().setAccounts(accounts, activeAccountId);
+      useAccounts.getState().setAccounts(accounts, seeds, activeAccountId);
       useSession.setState({ isUnlocked: true, vaultKey: key });
       router.replace("/(tabs)/wallet");
     } catch (e: any) {

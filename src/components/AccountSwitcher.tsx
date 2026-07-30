@@ -33,7 +33,16 @@ import { hapticSelect } from "@/src/lib/haptics";
 import { T } from "@/src/components/T";
 import { useTheme } from "@/src/theme/ThemeProvider";
 
-export type SwitchableAccount = { id: string; label: string };
+export type SwitchableAccount = {
+  id: string;
+  label: string;
+  /**
+   * Colour of the recovery phrase this account belongs to, when the wallet
+   * holds more than one. Undefined for a single-phrase wallet, where there is
+   * nothing to distinguish and a colour would just be decoration.
+   */
+  seedColor?: string;
+};
 
 const CHIP = 34; // collapsed diameter
 const EXPAND_MS = 320;
@@ -109,7 +118,17 @@ function AccountChip({
             opacity: t,
           }}
         >
-          <View style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: theme.bg }} />
+          {/* Carries the phrase's colour so the same account reads the same
+              way here as in the grouped accounts list. Falls back to the
+              chip's own foreground when there is only one phrase. */}
+          <View
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 999,
+              backgroundColor: account.seedColor ?? theme.bg,
+            }}
+          />
           <T weight="semibold" numberOfLines={1} style={{ color: theme.bg, fontSize: 13 }}>
             {account.label}
           </T>
@@ -121,7 +140,10 @@ function AccountChip({
             opacity: t.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
           }}
         >
-          <T weight="semibold" style={{ color: theme.muted, fontSize: 13 }}>
+          <T
+            weight="semibold"
+            style={{ color: account.seedColor ?? theme.muted, fontSize: 13 }}
+          >
             {index + 1}
           </T>
         </Animated.View>

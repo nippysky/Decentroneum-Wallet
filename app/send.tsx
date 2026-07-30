@@ -26,7 +26,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
 import { useTokens } from "@/src/state/tokens";
-import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
+import { getAccountSecret } from "@/src/lib/crypto/vault";
 
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
 import type { ListedToken } from "@/src/lib/tokens/registry";
@@ -296,10 +296,10 @@ export default function SendScreen() {
     setErr(null);
 
     try {
-      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
+      const { mnemonic, path } = await getAccountSecret(vaultKey, accountId);
 
       if (asset.kind === "native") {
-        const res = await sendNativeETN({ mnemonic, to: to.trim(), amountEth: amount });
+        const res = await sendNativeETN({ mnemonic, path, to: to.trim(), amountEth: amount });
         setSentHash(res.hash);
         setStep("success");
         notifyLocal({
@@ -313,6 +313,7 @@ export default function SendScreen() {
 
       const res = await sendErc20({
         mnemonic,
+        path,
         tokenAddress: asset.token.address,
         to: to.trim(),
         amount,

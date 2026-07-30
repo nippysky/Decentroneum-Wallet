@@ -31,7 +31,7 @@ import { TextButton } from "@/src/components/TextButton";
 
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
-import { getDecryptedMnemonic } from "@/src/lib/crypto/vault";
+import { getAccountSecret } from "@/src/lib/crypto/vault";
 import { getDomain } from "@/src/lib/url";
 import { isDomainConnected, setDomainConnected, disconnectDomain } from "@/src/lib/storage/dappPermissions";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
@@ -649,7 +649,9 @@ export default function WebScreen() {
   const isUnlocked = useSession((s) => s.isUnlocked);
   const vaultKey = useSession((s) => s.vaultKey);
   const activeAccount = useAccounts((s) => s.activeAccount());
-  const accounts = useAccounts((s) => s.accounts);
+  // Visible accounts only — a site should never be offered an account the
+  // user has hidden from their own list.
+  const accounts = useAccounts((s) => s.accounts.filter((a) => !a.hidden));
   const address = activeAccount?.address ?? null;
   const accountId = activeAccount?.id ?? null;
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
@@ -1040,8 +1042,11 @@ if (rpc.method === "dw_disconnect") {
 
     setSending(true);
     try {
-      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
-      const signer = getSigner(mnemonic);
+      // Path, not just the phrase — one seed backs several accounts, so a
+      // signer built from the phrase alone would sign as index 0 and spend
+      // from the wrong account.
+      const { mnemonic, path } = await getAccountSecret(vaultKey, accountId);
+      const signer = getSigner(mnemonic, path);
       const txToSend: ethers.TransactionRequest = { ...pendingTx.tx, from: address, chainId: ELECTRONEUM.chainId };
       const resp = await signer.sendTransaction(txToSend);
       respondRpc(pendingTx.rpc.id, resp.hash);
@@ -1070,8 +1075,11 @@ if (rpc.method === "dw_disconnect") {
 
     setSigning(true);
     try {
-      const mnemonic = await getDecryptedMnemonic(vaultKey, accountId);
-      const signer = getSigner(mnemonic);
+      // Path, not just the phrase — one seed backs several accounts, so a
+      // signer built from the phrase alone would sign as index 0 and spend
+      // from the wrong account.
+      const { mnemonic, path } = await getAccountSecret(vaultKey, accountId);
+      const signer = getSigner(mnemonic, path);
 
       if (pendingSign.kind === "message") {
         const payload = pendingSign.messageToSign!;
