@@ -12,10 +12,9 @@
 import "react-native-get-random-values"; // helps ethers on RN
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, View, Linking } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, View, Linking } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { WebView } from "react-native-webview";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -27,6 +26,8 @@ import { T } from "@/src/components/T";
 import { Button } from "@/src/components/Button";
 import { IconButton } from "@/src/components/IconButton";
 import { HoldToConfirm } from "@/src/components/HoldToConfirm";
+import { FullSheet } from "@/src/components/FullSheet";
+import { TextButton } from "@/src/components/TextButton";
 
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
@@ -363,62 +364,47 @@ function isSignMethod(method: string) {
 
 function MenuSheet({ visible, onClose, items }: { visible: boolean; onClose: () => void; items: MenuItem[] }) {
   const { theme } = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-        <Pressable style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: theme.bgElevated,
-              borderRadius: RADIUS.xxl,
-              overflow: "hidden",
-              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
+    <FullSheet
+      visible={visible}
+      title="Options"
+      subtitle="Manage this site and navigation."
+      onClose={onClose}
+      footer={<TextButton title="Cancel" onPress={onClose} />}
+    >
+      <View style={{ gap: 2 }}>
+        {items.map((it) => (
+          <Pressable hitSlop={6}
+            key={it.label}
+            onPress={() => {
+              onClose();
+              it.onPress();
             }}
+            // Whole row, full width, 56pt minimum — the old rows were
+            // paddingVertical: 8 around a text node, so only the glyphs were
+            // live and taps between rows did nothing.
+            style={({ pressed }) => ({
+              minHeight: 56,
+              justifyContent: "center",
+              paddingHorizontal: SPACING.md,
+              marginHorizontal: -SPACING.md,
+              borderRadius: RADIUS.lg,
+              backgroundColor: pressed ? theme.surface2 : "transparent",
+            })}
           >
-            <View style={{ padding: SPACING.lg, paddingBottom: SPACING.md }}>
-              <T weight="bold" style={{ fontSize: 19, lineHeight: 23 }}>
-                Options
+            <T weight="semibold" color={it.destructive ? theme.danger : theme.text}>
+              {it.label}
+            </T>
+            {it.hint ? (
+              <T variant="caption" color={theme.muted} style={{ marginTop: 2 }}>
+                {it.hint}
               </T>
-              <T variant="caption" color={theme.muted}>
-                Manage this site and navigation.
-              </T>
-            </View>
-
-            {items.map((it) => (
-              <Pressable
-                key={it.label}
-                onPress={() => {
-                  onClose();
-                  it.onPress();
-                }}
-                style={({ pressed }) => ({
-                  paddingHorizontal: SPACING.lg,
-                  paddingVertical: SPACING.sm,
-                  opacity: pressed ? 0.6 : 1,
-                })}
-              >
-                <T weight="semibold" color={it.destructive ? theme.danger : theme.text}>
-                  {it.label}
-                </T>
-                {it.hint ? (
-                  <T variant="caption" color={theme.muted} style={{ marginTop: 2 }}>
-                    {it.hint}
-                  </T>
-                ) : null}
-              </Pressable>
-            ))}
-
-            <View style={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.sm }}>
-              <Button title="Cancel" variant="outline" onPress={onClose} />
-            </View>
+            ) : null}
           </Pressable>
-        </Pressable>
+        ))}
       </View>
-    </Modal>
+    </FullSheet>
   );
 }
 
@@ -434,52 +420,33 @@ function ConnectSheet({
   onDeny: () => void;
 }) {
   const { theme } = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDeny}>
-      <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-        <Pressable onPress={onDeny} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: theme.bgElevated,
-              borderRadius: RADIUS.xxl,
-              padding: SPACING.lg,
-              gap: SPACING.sm,
-              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
-            }}
-          >
-            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
-              Connect wallet?
-            </T>
-
-            <T color={theme.muted}>
-              This site will be able to view your address. Only connect to sites you trust.
-            </T>
-
-            <View
-              style={{
-                marginTop: SPACING.xs,
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                backgroundColor: theme.surface2,
-              }}
-            >
-              <T weight="semibold">{origin}</T>
-              <T variant="caption" color={theme.muted}>
-                Permission: view address
-              </T>
-            </View>
-
-            <View style={{ height: SPACING.xs }} />
-            <Button title="Connect" onPress={onApprove} />
-            <Button title="Not now" variant="outline" onPress={onDeny} />
-          </Pressable>
-        </Pressable>
+    <FullSheet
+      visible={visible}
+      title="Connect wallet?"
+      subtitle="This site will be able to view your address. Only connect to sites you trust."
+      onClose={onDeny}
+      footer={
+        <>
+          <Button title="Connect" onPress={onApprove} />
+          <TextButton title="Not now" onPress={onDeny} />
+        </>
+      }
+    >
+      <View
+        style={{
+          padding: SPACING.md,
+          borderRadius: RADIUS.lg,
+          backgroundColor: theme.surface2,
+        }}
+      >
+        <T weight="semibold">{origin}</T>
+        <T variant="caption" color={theme.muted}>
+          Permission: view address
+        </T>
       </View>
-    </Modal>
+    </FullSheet>
   );
 }
 
@@ -505,89 +472,55 @@ function SignSheet({
   onDeny: () => void;
 }) {
   const { theme } = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDeny}>
-      <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-        <Pressable onPress={onDeny} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: theme.bgElevated,
-              borderRadius: RADIUS.xxl,
-              padding: SPACING.lg,
-              gap: SPACING.md,
-              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
-            }}
-          >
-            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
-              Sign request
-            </T>
+    <FullSheet
+      visible={visible}
+      title="Sign request"
+      onClose={onDeny}
+      footer={
+        <>
+          <HoldToConfirm
+            title={isSigning ? "Signing…" : "Hold to sign"}
+            holdingTitle="Release to cancel"
+            disabled={isSigning}
+            onConfirmed={onApprove}
+          />
+          <TextButton title="Reject" onPress={onDeny} disabled={isSigning} />
+        </>
+      }
+    >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.md }}>
+        <View style={{ padding: SPACING.md, borderRadius: RADIUS.lg, backgroundColor: theme.surface2, gap: 6 }}>
+          <T weight="semibold" numberOfLines={1}>
+            {origin}
+          </T>
+          <T variant="caption" color={theme.muted}>
+            {kind === "typedData" ? "Type: Typed data (EIP-712)" : "Type: Message"}
+          </T>
+          <T variant="caption" color={theme.muted} numberOfLines={1}>
+            Signing as: {shorten(address)}
+          </T>
+        </View>
 
-            <View
-              style={{
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                backgroundColor: theme.surface2,
-                gap: 6,
-              }}
-            >
-              <T weight="semibold" numberOfLines={1}>
-                {origin}
-              </T>
-              <T variant="caption" color={theme.muted}>
-                {kind === "typedData" ? "Type: Typed data (EIP-712)" : "Type: Message"}
-              </T>
-              <T variant="caption" color={theme.muted} numberOfLines={1}>
-                Signing as: {shorten(address)}
-              </T>
-            </View>
+        <View style={{ padding: SPACING.md, borderRadius: RADIUS.lg, backgroundColor: theme.surface2, gap: 6 }}>
+          <T variant="caption" color={theme.muted}>
+            Preview
+          </T>
+          {/* Full screen means the preview can be read in full instead of
+              truncated to four lines inside a half sheet — which matters,
+              because "review what you're signing" is the entire point. */}
+          <T weight="medium">{messagePreview}</T>
+        </View>
 
-            <View
-              style={{
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                backgroundColor: theme.surface2,
-                gap: 6,
-              }}
-            >
-              <T variant="caption" color={theme.muted}>
-                Preview
-              </T>
-              <T numberOfLines={4} weight="medium">
-                {messagePreview}
-              </T>
-            </View>
-
-            <View
-              style={{
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                backgroundColor: theme.surface2,
-              }}
-            >
-              <T weight="semibold">Be careful</T>
-              <T variant="caption" color={theme.muted}>
-                {warning}
-              </T>
-            </View>
-
-            <View style={{ height: SPACING.xs }} />
-
-            <HoldToConfirm
-              title={isSigning ? "Signing…" : "Hold to sign"}
-              holdingTitle="Release to cancel"
-              disabled={isSigning}
-              onConfirmed={onApprove}
-            />
-
-            <Button title="Reject" variant="outline" onPress={onDeny} disabled={isSigning} />
-          </Pressable>
-        </Pressable>
-      </View>
-    </Modal>
+        <View style={{ padding: SPACING.md, borderRadius: RADIUS.lg, backgroundColor: theme.surface2 }}>
+          <T weight="semibold">Be careful</T>
+          <T variant="caption" color={theme.muted}>
+            {warning}
+          </T>
+        </View>
+      </ScrollView>
+    </FullSheet>
   );
 }
 
@@ -621,7 +554,6 @@ function TxSheet({
   onDeny: () => void;
 }) {
   const { theme } = useTheme();
-  const insets = useSafeAreaInsets();
 
   const row = (label: string, val: string, mono?: boolean) => (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -637,94 +569,67 @@ function TxSheet({
   const showWarn = simulationStatus === "warn";
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDeny}>
-      <View style={{ flex: 1 }}>
-        <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-        <Pressable onPress={onDeny} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: theme.bgElevated,
-              borderRadius: RADIUS.xxl,
-              padding: SPACING.lg,
-              gap: SPACING.md,
-              paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
-            }}
-          >
-            <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
-              {hasData ? "Approve contract call" : "Confirm transaction"}
+    <FullSheet
+      visible={visible}
+      title={hasData ? "Approve contract call" : "Confirm transaction"}
+      onClose={onDeny}
+      footer={
+        <>
+          <HoldToConfirm
+            title={isSending ? "Sending…" : "Hold to confirm"}
+            holdingTitle="Release to cancel"
+            disabled={isEstimating || isSending}
+            onConfirmed={onApprove}
+          />
+          <TextButton title="Reject" onPress={onDeny} disabled={isSending} />
+        </>
+      }
+    >
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.md }}>
+        {showWarn ? (
+          <View style={{ padding: SPACING.md, borderRadius: RADIUS.lg, backgroundColor: theme.surface2 }}>
+            <T weight="semibold">Caution</T>
+            <T variant="caption" color={theme.muted}>
+              This looks like a contract interaction. It may move tokens or request approvals. Review carefully.
             </T>
+          </View>
+        ) : null}
 
-            {showWarn ? (
-              <View
-                style={{
-                  padding: SPACING.md,
-                  borderRadius: RADIUS.lg,
-                  backgroundColor: theme.surface2,
-                }}
-              >
-                <T weight="semibold">Caution</T>
-                <T variant="caption" color={theme.muted}>
-                  This looks like a contract interaction. It may move tokens or request approvals. Review carefully.
-                </T>
-              </View>
-            ) : null}
+        <View style={{ padding: SPACING.md, borderRadius: RADIUS.lg, backgroundColor: theme.surface2, gap: 8 }}>
+          <T weight="semibold" numberOfLines={1}>
+            {origin}
+          </T>
 
-            <View
-              style={{
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                backgroundColor: theme.surface2,
-                gap: 8,
-              }}
-            >
-              <T weight="semibold" numberOfLines={1}>
-                {origin}
+          {row("To", shorten(to), true)}
+          {row("Type", hasData ? "Contract interaction" : "Send")}
+          {row("Amount", `${valueEth} ${ELECTRONEUM.symbol}`, true)}
+
+          {hasData ? (
+            <View style={{ gap: 4 }}>
+              <T variant="caption" color={theme.muted}>
+                Data (preview)
               </T>
-
-              {row("To", shorten(to), true)}
-              {row("Type", hasData ? "Contract interaction" : "Send")}
-              {row("Amount", `${valueEth} ${ELECTRONEUM.symbol}`, true)}
-
-              {hasData ? (
-                <View style={{ gap: 4 }}>
-                  <T variant="caption" color={theme.muted}>
-                    Data (preview)
-                  </T>
-                  <T weight="medium" numberOfLines={1}>
-                    {dataPreview}
-                  </T>
-                </View>
-              ) : null}
-
-              {row("Network fee", isEstimating ? "Estimating…" : `${feeEth} ${ELECTRONEUM.symbol}`, true)}
-              <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
-              {row("Total", isEstimating ? "—" : `${totalEth} ${ELECTRONEUM.symbol}`, true)}
+              <T weight="medium" numberOfLines={1}>
+                {dataPreview}
+              </T>
             </View>
+          ) : null}
 
-            {isEstimating ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 6 }}>
-                <ActivityIndicator />
-                <T variant="caption" color={theme.muted}>
-                  Estimating fee…
-                </T>
-              </View>
-            ) : null}
+          {row("Network fee", isEstimating ? "Estimating…" : `${feeEth} ${ELECTRONEUM.symbol}`, true)}
+          <View style={{ height: 1, backgroundColor: theme.border, marginVertical: 4 }} />
+          {row("Total", isEstimating ? "—" : `${totalEth} ${ELECTRONEUM.symbol}`, true)}
+        </View>
 
-            <View style={{ height: SPACING.xs }} />
-
-            <HoldToConfirm
-              title={isSending ? "Sending…" : "Hold to confirm"}
-              holdingTitle="Release to cancel"
-              disabled={isEstimating || isSending}
-              onConfirmed={onApprove}
-            />
-
-            <Button title="Reject" variant="outline" onPress={onDeny} disabled={isSending} />
-          </Pressable>
-        </Pressable>
-      </View>
-    </Modal>
+        {isEstimating ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 6 }}>
+            <ActivityIndicator />
+            <T variant="caption" color={theme.muted}>
+              Estimating fee…
+            </T>
+          </View>
+        ) : null}
+      </ScrollView>
+    </FullSheet>
   );
 }
 
@@ -732,7 +637,14 @@ export default function WebScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ url?: string }>();
+  const params = useLocalSearchParams<{ url?: string; readonly?: string }>();
+
+  // Read-only mode: a plain web view with NO wallet provider injected and NO
+  // unlock requirement. Used for links that must work before a wallet even
+  // exists — Terms of Service and Privacy Policy on the onboarding screen.
+  // Without this the legal links bounced to /unlock, which for a brand-new
+  // user is a dead end (there is no passcode yet).
+  const readOnly = params.readonly === "1";
 
   const isUnlocked = useSession((s) => s.isUnlocked);
   const vaultKey = useSession((s) => s.vaultKey);
@@ -909,8 +821,8 @@ export default function WebScreen() {
       setEstimating(true);
 
       try {
-        // Routed through the same estimateFees() the native SendSheet and the
-        // WalletConnect tx-approval sheet use — one shared implementation, so
+        // Routed through the same estimateFees() the native SendSheet uses —
+        // one shared implementation, so
         // the +10% gasLimit safety buffer (see wallet.ts) and any future fee
         // logic changes apply everywhere a transaction gets broadcast, not
         // just here. This used to be its own hand-rolled copy of the same
@@ -1193,7 +1105,7 @@ if (rpc.method === "dw_disconnect") {
     setPendingSign(null);
   }, [pendingSign, respondRpc]);
 
-  if (!isUnlocked) {
+  if (!isUnlocked && !readOnly) {
     // Navigation is a side effect and must not happen during render — doing
     // so throws "Cannot update a component while rendering a different
     // component". <Redirect> performs the same navigation as an effect,
@@ -1210,7 +1122,9 @@ if (rpc.method === "dw_disconnect") {
       : "0x";
 
   const menuItems: MenuItem[] = [
-    ...(accounts.length > 1
+    // Wallet-specific actions are meaningless in read-only mode (no provider
+    // is injected and there may be no wallet on the device yet).
+    ...(!readOnly && accounts.length > 1
       ? [
           {
             label: `Switch account (${shorten(address ?? "")})`,
@@ -1219,7 +1133,16 @@ if (rpc.method === "dw_disconnect") {
           } as MenuItem,
         ]
       : []),
-    { label: "Disconnect site", hint: "Revokes this site’s wallet access.", destructive: true, onPress: doDisconnect },
+    ...(!readOnly
+      ? [
+          {
+            label: "Disconnect site",
+            hint: "Revokes this site’s wallet access.",
+            destructive: true,
+            onPress: doDisconnect,
+          } as MenuItem,
+        ]
+      : []),
     { label: "Hard refresh", hint: "Full reload (fixes iOS refresh errors).", onPress: hardRefresh },
     { label: "Open in Safari", hint: "Use the system browser.", onPress: openInSafari },
     { label: "Copy URL", hint: "Copies the current page link.", onPress: copyUrl },
@@ -1272,7 +1195,7 @@ if (rpc.method === "dw_disconnect") {
         ref={webRef}
         source={{ uri: sourceUrl }}
         // ✅ critical: early injection so dapp boot sees window.ethereum
-        injectedJavaScriptBeforeContentLoaded={injected()}
+        injectedJavaScriptBeforeContentLoaded={readOnly ? "true;" : injected()}
         // keep a harmless injectedJavaScript so some Android builds don’t drop the bridge
         injectedJavaScript={"true;"}
         javaScriptEnabled
@@ -1391,53 +1314,42 @@ if (rpc.method === "dw_disconnect") {
 
       <MenuSheet visible={menuOpen} onClose={() => setMenuOpen(false)} items={menuItems} />
 
-      <Modal visible={accountSwitcherOpen} transparent animationType="fade" onRequestClose={() => setAccountSwitcherOpen(false)}>
-        <View style={{ flex: 1 }}>
-          <BlurView intensity={30} tint="default" style={{ position: "absolute", inset: 0 }} />
-          <Pressable onPress={() => setAccountSwitcherOpen(false)} style={{ flex: 1, padding: 18, justifyContent: "flex-end" }}>
-            <Pressable
-              onPress={() => {}}
-              style={{
-                backgroundColor: theme.bgElevated,
-                borderRadius: RADIUS.xxl,
-                overflow: "hidden",
-                paddingBottom: SPACING.md + Math.max(insets.bottom, 6),
-              }}
+      <FullSheet
+        visible={accountSwitcherOpen}
+        title="Switch account"
+        subtitle="This site will see the account you pick."
+        onClose={() => setAccountSwitcherOpen(false)}
+        footer={<TextButton title="Cancel" onPress={() => setAccountSwitcherOpen(false)} />}
+      >
+        <View style={{ gap: 2 }}>
+          {accounts.map((a) => (
+            <Pressable hitSlop={6}
+              key={a.id}
+              onPress={() => switchAccountLive(a.id)}
+              // 60pt row, full width, pressed state on the row itself — not
+              // an opacity fade on a text node with 8pt of padding.
+              style={({ pressed }) => ({
+                minHeight: 60,
+                paddingHorizontal: SPACING.md,
+                marginHorizontal: -SPACING.md,
+                borderRadius: RADIUS.lg,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                backgroundColor: pressed ? theme.surface2 : "transparent",
+              })}
             >
-              <View style={{ padding: SPACING.lg, gap: 6 }}>
-                <T weight="bold" style={{ fontSize: 19 }}>
-                  Switch account
-                </T>
+              <View>
+                <T weight="semibold">{a.label}</T>
                 <T variant="caption" color={theme.muted}>
-                  This site will see the account you pick.
+                  {shorten(a.address)}
                 </T>
               </View>
-              {accounts.map((a) => (
-                <Pressable
-                  key={a.id}
-                  onPress={() => switchAccountLive(a.id)}
-                  style={({ pressed }) => ({
-                    paddingHorizontal: SPACING.lg,
-                    paddingVertical: SPACING.sm,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    opacity: pressed ? 0.6 : 1,
-                  })}
-                >
-                  <View>
-                    <T weight="semibold">{a.label}</T>
-                    <T variant="caption" color={theme.muted}>
-                      {shorten(a.address)}
-                    </T>
-                  </View>
-                  {a.id === accountId ? <Ionicons name="checkmark-circle" size={20} color={theme.accent} /> : null}
-                </Pressable>
-              ))}
+              {a.id === accountId ? <Ionicons name="checkmark-circle" size={20} color={theme.accent} /> : null}
             </Pressable>
-          </Pressable>
+          ))}
         </View>
-      </Modal>
+      </FullSheet>
 
       <ConnectSheet
         visible={!!pendingOrigin}

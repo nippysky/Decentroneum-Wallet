@@ -2,6 +2,7 @@ import { config } from "./config";
 import { createServer } from "./server";
 import { startChainWatcher } from "./chainWatcher";
 import { startTokenRegistry, stopTokenRegistry } from "./tokenRegistry";
+import { startMarketData } from "./marketData";
 
 // One bad response body, one flaky network error deep in a promise chain,
 // and a naive Node process just dies — taking down live delivery until
@@ -28,10 +29,20 @@ const httpServer = app.listen(config.port, () => {
 // list at startup, so fetching it first avoids a window where a listed token
 // is silently unwatched until the next refresh.
 let stopWatcher: () => void = () => {};
+let stopMarket: () => void = () => {};
 startTokenRegistry()
   .catch((err) => console.error("[server] token registry failed to load:", err))
   .finally(() => {
     stopWatcher = startChainWatcher();
+    // Starts after the registry, because pool resolution iterates the
+    // tracked-token list. Failures here are logged and isolated — market data
+    // is a display feature, and it must never be able to take down push
+    // notifications, which are the part users actually depend on.
+    try {
+      stopMarket = startMarketData();
+    } catch (err) {
+      console.error("[server] market data failed to start:", err);
+    }
   });
 
 let shuttingDown = false;
@@ -40,6 +51,7 @@ function shutdown(signal: string) {
   shuttingDown = true;
   console.log(`\n[server] received ${signal} — shutting down…`);
   stopTokenRegistry();
+  stopMarket();
   stopWatcher();
   httpServer.close(() => process.exit(0));
   // Don't hang forever waiting for in-flight requests to drain.

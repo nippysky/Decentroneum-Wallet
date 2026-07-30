@@ -19,9 +19,11 @@ import { TokenLogo } from "@/src/components/TokenLogo";
 import { Skeleton } from "@/src/components/Skeleton";
 import { ReceiveModal } from "@/src/components/ReceiveModal";
 import { CircleAction } from "@/src/components/CircleAction";
+import { MarketPanel } from "@/src/features/market/MarketPanel";
 import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
+import { FONT } from "@/src/theme/typography";
 import { useAccounts } from "@/src/state/accounts";
 import { useTokens } from "@/src/state/tokens";
 
@@ -150,6 +152,18 @@ export default function TokenDetailScreen() {
   const logoURI = isNative ? ETN_LOGO_URI : meta?.logoURI;
 
   const balanceText = isNative ? formatNative2dpFromWei(balanceRaw) : formatUnits2dp(balanceRaw, decimals);
+
+  // The display strings above carry thousands separators, so they parse as
+  // NaN. Derive the numeric balance from the raw value instead — this is what
+  // gets multiplied by the price for the holdings figure.
+  const balanceAsNumber = useMemo(() => {
+    try {
+      const n = Number(ethers.formatUnits(balanceRaw, isNative ? ELECTRONEUM.decimals : decimals));
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  }, [balanceRaw, decimals, isNative]);
   const showBalanceSkeleton = balanceLoading && balanceRaw === 0n;
 
   const sendHref = isNative ? "/send" : ({ pathname: "/send", params: { asset: routeAddress } } as const);
@@ -158,7 +172,7 @@ export default function TokenDetailScreen() {
     <Screen>
       <View style={{ flex: 1 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Pressable
+          <Pressable hitSlop={6}
             onPress={() => router.back()}
             style={({ pressed }) => ({
               width: 38,
@@ -219,6 +233,19 @@ export default function TokenDetailScreen() {
 
           <View style={{ height: SPACING.xxl }} />
 
+          {/* Market — price, line chart, holdings value, market stats.
+              Everything here is read from our own push server's cache, not
+              from GeckoTerminal directly; see src/state/market.ts for why
+              that distinction matters at scale. */}
+          <MarketPanel
+            address={routeAddress}
+            symbol={symbol !== "—" ? symbol : ""}
+            balance={balanceAsNumber}
+            isNative={isNative}
+          />
+
+          <View style={{ height: SPACING.xxl }} />
+
           {/* Token details */}
           <View style={{ gap: SPACING.sm }}>
             <T weight="bold" style={{ fontSize: 18 }}>
@@ -264,7 +291,7 @@ export default function TokenDetailScreen() {
                         opacity: pressed ? 0.6 : 1,
                       })}
                     >
-                      <T weight="semibold" color={theme.accent} style={{ fontFamily: "Menlo" }}>
+                      <T weight="semibold" color={theme.accent} style={{ fontFamily: FONT.mono }}>
                         {shortAddr(routeAddress)}
                       </T>
                       <Ionicons name="open-outline" size={13} color={theme.accent} />
@@ -293,7 +320,7 @@ export default function TokenDetailScreen() {
 
               <View style={{ height: 1, backgroundColor: theme.bg }} />
 
-              <Pressable
+              <Pressable hitSlop={6}
                 onPress={() => (isNative ? openExplorerAddress(owner ?? "") : openExplorerToken(routeAddress))}
                 style={({ pressed }) => ({
                   padding: SPACING.md,
@@ -340,7 +367,7 @@ export default function TokenDetailScreen() {
                   const amountText = formatAmount(item.valueRaw, decimals);
 
                   return (
-                    <Pressable
+                    <Pressable hitSlop={6}
                       key={item.hash}
                       onPress={() => openExplorerTx(item.hash)}
                       style={({ pressed }) => ({

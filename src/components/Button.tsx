@@ -1,7 +1,7 @@
 // src/ui/Button.tsx
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { FONT } from "@/src/theme/typography";
-import * as Haptics from "expo-haptics";
+import { hapticTap } from "@/src/lib/haptics";
 import React from "react";
 import { ActivityIndicator, Platform, Pressable, Text, TextStyle, ViewStyle } from "react-native";
 
@@ -87,10 +87,18 @@ export function Button({
     <Pressable
       accessibilityRole="button"
       disabled={disabled || loading}
-      onPress={async () => {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Haptics is fire-and-forget on purpose. It used to be awaited before
+      // calling onPress — but impactAsync REJECTS on devices/simulators
+      // without a Taptic Engine, and the rejection meant onPress never ran.
+      // That was the "I have to press this button five times" bug: the tap
+      // registered, the handler just silently died before doing anything.
+      onPress={() => {
+        hapticTap();
         onPress();
       }}
+      // A 54pt-tall pill already exceeds the 44pt minimum, but hitSlop makes
+      // the near-miss taps at the very edge count too.
+      hitSlop={8}
       android_ripple={{ color: theme.border }}
       style={({ pressed }) => [
         base,

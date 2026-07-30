@@ -73,14 +73,14 @@ function useEntrance(active: boolean) {
 type IllustrationProps = { theme: Theme; active: boolean; size?: number };
 
 function Backdrop({ theme }: { theme: Theme }) {
-  const soft = theme.bg === "#060807" ? `${BRAND.neon}1F` : `${BRAND.neon}17`;
+  const soft = theme.isDark ? `${BRAND.neon}1F` : `${BRAND.neon}17`;
   return <Circle cx={60} cy={60} r={52} fill={soft} />;
 }
 
 /** Slide 1 — "Your keys stay on your phone." Phone outline holding a shield. */
 export function SecurityIllustration({ theme, active, size = 152 }: IllustrationProps) {
   const style = useEntrance(active);
-  const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
+  const ink = theme.isDark ? theme.text : BRAND.ink;
   return (
     <Animated.View style={style}>
       <Svg width={size} height={size} viewBox="0 0 120 120">
@@ -143,7 +143,7 @@ export function NetworkIllustration({ theme, active, size = 152 }: IllustrationP
 /** Slide 3 — "Manage more than one wallet." Two overlapping account cards. */
 export function AccountsIllustration({ theme, active, size = 152 }: IllustrationProps) {
   const style = useEntrance(active);
-  const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
+  const ink = theme.isDark ? theme.text : BRAND.ink;
   return (
     <Animated.View style={style}>
       <Svg width={size} height={size} viewBox="0 0 120 120">
@@ -163,7 +163,7 @@ export function AccountsIllustration({ theme, active, size = 152 }: Illustration
 /** Slide 4 — "Explore dApps, track every transaction." Browser + compass. */
 export function BrowserIllustration({ theme, active, size = 152 }: IllustrationProps) {
   const style = useEntrance(active);
-  const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
+  const ink = theme.isDark ? theme.text : BRAND.ink;
   return (
     <Animated.View style={style}>
       <Svg width={size} height={size} viewBox="0 0 120 120">
@@ -185,7 +185,7 @@ export function BrowserIllustration({ theme, active, size = 152 }: IllustrationP
 /** Slide 5 — "Know the moment funds arrive." Bell with pulse rings. */
 export function NotificationsIllustration({ theme, active, size = 152 }: IllustrationProps) {
   const style = useEntrance(active);
-  const ink = theme.bg === "#060807" ? theme.text : BRAND.ink;
+  const ink = theme.isDark ? theme.text : BRAND.ink;
   return (
     <Animated.View style={style}>
       <Svg width={size} height={size} viewBox="0 0 120 120">

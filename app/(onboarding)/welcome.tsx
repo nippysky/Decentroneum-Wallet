@@ -1,31 +1,47 @@
 // app/(onboarding)/welcome.tsx
-import React, { useMemo, useRef, useState } from "react";
-import {
-  Dimensions,
-  FlatList,
-  Pressable,
-  View,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-} from "react-native";
+//
+// Onboarding, rebuilt.
+//
+// What changed and why:
+//
+//  - The old screen stacked five things vertically: illustration, kicker,
+//    two-line headline, body paragraph, dot row, two buttons, legal text.
+//    Eight elements competing on one screen reads as a brochure. This
+//    version shows FOUR: mark, headline, one line of body, actions.
+//
+//  - Instead of five swipeable cards, the headline itself cycles. The
+//    illustration stays put and the words change underneath it — so the
+//    screen feels like one calm object being described from different
+//    angles, rather than five screens you have to get through. There is
+//    still a manual swipe, and the auto-advance stops the moment you touch
+//    it, because auto-advancing under someone's finger is infuriating.
+//
+//  - Progress is a thin hairline that fills, not a row of dots. Dots ask
+//    "how many are left?"; a line just quietly says "nearly done".
+//
+//  - Actions are pinned to the bottom of the screen, always in the same
+//    place, never moving as the copy changes length.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, Dimensions, Easing, Pressable, View } from "react-native";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { Screen } from "@/src/components/Screen";
 import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
+import { WordMark } from "@/src/components/WordMark";
 import { ONBOARDING_ILLUSTRATIONS } from "@/src/components/illustrations/OnboardingIllustrations";
-import { openInApp } from "@/src/lib/chain/openExplorer";
+import { openInfoPage } from "@/src/lib/chain/openExplorer";
 import { SCREEN_PADDING, SPACING } from "@/src/theme/tokens";
 
 type Slide = {
   key: keyof typeof ONBOARDING_ILLUSTRATIONS;
-  kicker: string;
   title: string;
   body: string;
 };
+
+const SLIDE_MS = 4200;
 
 export default function Welcome() {
   const router = useRouter();
@@ -36,214 +52,213 @@ export default function Welcome() {
     () => [
       {
         key: "security",
-        kicker: "Security-first",
-        title: "Your keys stay\non your phone.",
-        body: "Non-custodial. No “reset password” that can leak your wallet.",
+        title: "Only you\nhold the keys.",
+        // The old line was "Your keys stay on your phone", which reads to a
+        // newcomer like "so if I lose my phone, I lose everything" — the
+        // exact fear you must not leave hanging on slide one. This says the
+        // same thing but leads with the guarantee and names the safety net.
+        body: "Encrypted on your device, backed up by your recovery phrase.",
       },
       {
         key: "electroneum",
-        kicker: "Electroneum-only",
-        title: "One network,\ndone right.",
-        body: "Hold ETN and ERC-20 tokens on Electroneum Smart Chain.",
+        title: "Built only for\nElectroneum.",
+        body: "ETN and every ERC-20 token on the Smart Chain.",
       },
       {
         key: "accounts",
-        kicker: "Multiple accounts",
-        title: "More than\none wallet.",
-        body: "Create or import accounts, switch instantly, all in one app.",
+        title: "Keep your wallets\nseparate.",
+        body: "Add accounts for savings, spending or work. Switch instantly.",
       },
       {
         key: "browser",
-        kicker: "Web3 browser",
-        title: "Browse dApps,\nconnect instantly.",
-        body: "Built-in browser with WalletConnect support — approve connections per site.",
+        title: "Use apps without\nleaving the wallet.",
+        body: "A built-in browser. You approve every connection.",
       },
       {
         key: "notifications",
-        kicker: "Stay in the loop",
         title: "Know the moment\nfunds arrive.",
-        body: "Get notified instantly when you receive ETN or tokens.",
+        body: "Instant alerts when you receive ETN or tokens.",
       },
     ],
     []
   );
 
-  const listRef = useRef<FlatList<Slide>>(null);
   const [index, setIndex] = useState(0);
-  const [width, setWidth] = useState(Dimensions.get("window").width);
+  const [paused, setPaused] = useState(false);
 
-  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const i = Math.round(x / Math.max(1, width));
-    setIndex(Math.min(slides.length - 1, Math.max(0, i)));
-  };
+  // Crossfade the copy rather than sliding a carousel — no horizontal scroll
+  // container means no rubber-banding, no paging math, and no chance of the
+  // list and the dots disagreeing about which slide is showing.
+  const fade = useRef(new Animated.Value(1)).current;
+  const rise = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
 
-  const goTo = (i: number) => {
-    const clamped = Math.min(slides.length - 1, Math.max(0, i));
-    setIndex(clamped);
-    listRef.current?.scrollToOffset({ offset: clamped * width, animated: true });
-  };
-
-  const Dot = ({ active }: { active: boolean }) => (
-    <View
-      style={{
-        width: active ? 20 : 6,
-        height: 6,
-        borderRadius: 999,
-        backgroundColor: active ? theme.accent : theme.border,
-      }}
-    />
+  const goTo = useCallback(
+    (next: number) => {
+      Animated.parallel([
+        Animated.timing(fade, { toValue: 0, duration: 160, useNativeDriver: true }),
+        Animated.timing(rise, { toValue: -8, duration: 160, useNativeDriver: true }),
+      ]).start(() => {
+        setIndex(((next % slides.length) + slides.length) % slides.length);
+        rise.setValue(8);
+        Animated.parallel([
+          Animated.timing(fade, { toValue: 1, duration: 240, useNativeDriver: true }),
+          Animated.timing(rise, {
+            toValue: 0,
+            duration: 240,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    },
+    [fade, rise, slides.length]
   );
 
+  useEffect(() => {
+    if (paused) return;
+    progress.setValue(0);
+    const anim = Animated.timing(progress, {
+      toValue: 1,
+      duration: SLIDE_MS,
+      easing: Easing.linear,
+      useNativeDriver: false, // animating width
+    });
+    anim.start();
+    const t = setTimeout(() => goTo(index + 1), SLIDE_MS);
+    return () => {
+      anim.stop();
+      clearTimeout(t);
+    };
+  }, [index, paused, goTo, progress]);
+
+  const slide = slides[index];
+  const Illustration = ONBOARDING_ILLUSTRATIONS[slide.key];
+
+  // Swipe left/right to move by hand. Touching anywhere stops the auto-play
+  // for good — once someone is driving, taking the wheel back is rude.
+  const startX = useRef(0);
+  const takeOver = () => setPaused(true);
+
+  const { width: screenW } = Dimensions.get("window");
+  const trackW = screenW - SCREEN_PADDING * 2;
+
   return (
-    <Screen
-      style={{
-        flex: 1,
-        backgroundColor: theme.bg,
-        paddingTop: 0,
-        paddingBottom: 0,
-      }}
-    >
-      {/* No header chrome — the slide itself is the whole screen. */}
-      <View style={{ height: insets.top + SPACING.md }} />
-
-      {/* Slides — a normal flex column per slide (illustration: flex:1 centered,
-          copy: natural height, pinned above the bottom actions via paddingBottom
-          on the slide itself). This is the standard, reliable RN pattern; the
-          previous illustration-not-showing bug was NOT a layout issue — it was
-          animating the <Svg> root directly (see OnboardingIllustrations.tsx),
-          which silently fails to paint on Fabric. That's fixed there now. */}
-      <View style={{ flex: 1 }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-        <FlatList
-          ref={listRef}
-          data={slides}
-          keyExtractor={(s) => s.key}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          bounces={false}
-          onMomentumScrollEnd={onMomentumEnd}
-          extraData={index}
-          renderItem={({ item, index: i }) => {
-            const Illustration = ONBOARDING_ILLUSTRATIONS[item.key];
-            return (
-              <View
-                style={{
-                  width,
-                  flex: 1,
-                  paddingHorizontal: SCREEN_PADDING,
-                  paddingBottom: 288, // clears dots + buttons + caption + safe area + the extra breathing room added below
-                }}
-              >
-                {/* Top-anchored, not centered — the leftover space below the
-                    copy becomes breathing room above the buttons instead of
-                    a dead gap above the icon. */}
-                <View style={{ alignItems: "center", paddingTop: SPACING.xl, paddingBottom: SPACING.xxl }}>
-                  <Illustration theme={theme} active={i === index} size={188} />
-                </View>
-
-                <View>
-                  <T variant="caption" weight="semibold" color={theme.accent} style={{ letterSpacing: 0.4 }}>
-                    {item.kicker.toUpperCase()}
-                  </T>
-
-                  <View style={{ height: SPACING.xs }} />
-
-                  <T weight="bold" style={{ fontSize: 32, lineHeight: 38, letterSpacing: -1.1 }}>
-                    {item.title}
-                  </T>
-
-                  <View style={{ height: SPACING.sm }} />
-
-                  <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23, maxWidth: 320 }}>
-                    {item.body}
-                  </T>
-                </View>
-              </View>
-            );
-          }}
-        />
-      </View>
-
-      {/* Bottom actions + dots (layered) — pushed further down via paddingTop
-          so the buttons sit closer to the true bottom edge, using space that
-          was previously just sitting empty, and opening up more air between
-          the slide copy above and the dots. */}
+    // padded={false}: this screen manages its own horizontal rhythm on the
+    // inner container. Leaving Screen's padding on as well double-applied
+    // SCREEN_PADDING (24 + 24 = 48pt of side gutter), which is why the copy
+    // used to sit in a narrow column in the middle of the screen.
+    <Screen padded={false} edges={[]} style={{ flex: 1, backgroundColor: theme.bg }}>
       <View
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          paddingTop: SPACING.xxxl,
-          paddingBottom: Math.max(insets.bottom, 14),
+        style={{ flex: 1, paddingHorizontal: SCREEN_PADDING }}
+        onStartShouldSetResponder={() => true}
+        onResponderGrant={(e) => {
+          startX.current = e.nativeEvent.pageX;
+          takeOver();
+        }}
+        onResponderRelease={(e) => {
+          const dx = e.nativeEvent.pageX - startX.current;
+          if (Math.abs(dx) > 40) goTo(index + (dx < 0 ? 1 : -1));
         }}
       >
-        {/* Subtle fade behind buttons in dark mode (Apple-y) */}
-        {theme.bg === "#060807" ? (
-          <LinearGradient
-            colors={["rgba(6,8,7,0)", "rgba(6,8,7,0.55)", "rgba(6,8,7,0.95)"]}
-            locations={[0, 0.35, 1]}
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 220,
-            }}
-          />
-        ) : null}
+        <View style={{ height: insets.top + SPACING.lg }} />
 
-        {/* Dots */}
-        <View
-          style={{
-            alignItems: "center",
-            justifyContent: "center",
-            paddingBottom: SPACING.lg,
-          }}
-        >
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-            {slides.map((_, i) => (
-              <Pressable
-                key={slides[i].key}
-                onPress={() => goTo(i)}
-                hitSlop={12}
-                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-              >
-                <Dot active={i === index} />
-              </Pressable>
-            ))}
-          </View>
+        {/* Brand mark — small, top-left, then it gets out of the way. */}
+        <WordMark size={17} />
+
+        {/* Illustration holds the middle of the screen and does not move
+            between slides; only its content swaps. */}
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Animated.View style={{ opacity: fade }}>
+            <Illustration theme={theme} active size={200} />
+          </Animated.View>
         </View>
 
-        {/* Buttons */}
-        <View style={{ paddingHorizontal: SCREEN_PADDING, gap: SPACING.md }}>
-          <Button title="Create a new wallet" onPress={() => router.push("/(onboarding)/create")} />
-          <Button title="I already have a wallet" variant="outline" onPress={() => router.push("/(onboarding)/import")} />
+        {/* Copy — two elements, no kicker. The kicker was a label for a
+            headline that already said the same thing. */}
+        <Animated.View style={{ opacity: fade, transform: [{ translateY: rise }] }}>
+          <T weight="bold" style={{ fontSize: 34, lineHeight: 39, letterSpacing: -1.3 }}>
+            {slide.title}
+          </T>
+          <View style={{ height: SPACING.sm }} />
+          <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23, maxWidth: 330 }}>
+            {slide.body}
+          </T>
+        </Animated.View>
 
-          {/* Legal consent shown BEFORE wallet creation, not buried in
-              Settings — both app stores expect terms to be reachable at the
-              point of sign-up for a financial app. */}
+        <View style={{ height: SPACING.xl }} />
+
+        {/* Progress hairline. Segments, so position is still legible, but
+            weightless compared to a row of dots. */}
+        <View style={{ flexDirection: "row", gap: 4 }}>
+          {slides.map((s, i) => (
+            <Pressable
+              key={s.key}
+              onPress={() => {
+                takeOver();
+                goTo(i);
+              }}
+              hitSlop={{ top: 14, bottom: 14, left: 2, right: 2 }}
+              style={{ flex: 1 }}
+            >
+              <View style={{ height: 2, borderRadius: 999, backgroundColor: theme.border, overflow: "hidden" }}>
+                {i < index ? (
+                  <View style={{ flex: 1, backgroundColor: theme.accent }} />
+                ) : i === index ? (
+                  <Animated.View
+                    style={{
+                      height: 2,
+                      backgroundColor: theme.accent,
+                      width: paused
+                        ? "100%"
+                        : progress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, Math.max(1, trackW / slides.length - 4)],
+                          }),
+                    }}
+                  />
+                ) : null}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={{ height: SPACING.xl }} />
+
+        {/* Actions — pinned to the bottom, fixed position on every slide. */}
+        <View style={{ gap: SPACING.sm, paddingBottom: Math.max(insets.bottom, SPACING.md) }}>
+          <Button title="Create a new wallet" onPress={() => router.push("/(onboarding)/create")} />
+          <Button
+            title="I already have a wallet"
+            variant="ghost"
+            onPress={() => router.push("/(onboarding)/import")}
+          />
+
+          {/* Legal consent at the point of sign-up, as both stores expect for
+              a financial app. openInfoPage (not openInApp) because the full
+              dApp browser bounces to /unlock, and there is no passcode yet. */}
           <T
             variant="caption"
             color={theme.muted}
-            style={{ textAlign: "center", paddingHorizontal: SPACING.md }}
+            style={{ textAlign: "center", fontSize: 11.5, lineHeight: 16 }}
           >
             By continuing you agree to our{" "}
             <T
               variant="caption"
               weight="semibold"
-              color={theme.accent}
-              onPress={() => openInApp("https://decentroneum.com/terms")}
+              color={theme.text}
+              style={{ fontSize: 11.5, textDecorationLine: "underline" }}
+              onPress={() => openInfoPage("https://decentroneum.com/terms")}
             >
-              Terms of Service
+              Terms
             </T>{" "}
             and{" "}
             <T
               variant="caption"
               weight="semibold"
-              color={theme.accent}
-              onPress={() => openInApp("https://decentroneum.com/privacy")}
+              color={theme.text}
+              style={{ fontSize: 11.5, textDecorationLine: "underline" }}
+              onPress={() => openInfoPage("https://decentroneum.com/privacy")}
             >
               Privacy Policy
             </T>

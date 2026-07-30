@@ -14,10 +14,7 @@ import { useAccounts } from "@/src/state/accounts";
 import { useTokens } from "@/src/state/tokens";
 import { useNotifications } from "@/src/state/notifications";
 import { useNotificationFeed } from "@/src/state/notificationsFeed";
-import { useWalletConnect } from "@/src/state/walletconnect";
-import { extractWcUri } from "@/src/lib/walletconnect/deepLink";
-import { SessionProposalSheet } from "@/src/features/walletconnect/SessionProposalSheet";
-import { SessionRequestSheet } from "@/src/features/walletconnect/SessionRequestSheet";
+import { useMarket } from "@/src/state/market";
 import { ToastHost } from "@/src/components/ToastHost";
 import {
   useFonts,
@@ -48,7 +45,7 @@ export default function RootLayout() {
   const hydrateTokens = useTokens((s) => s.hydrate);
   const hydrateNotifications = useNotifications((s) => s.hydrate);
   const refreshNotificationFeed = useNotificationFeed((s) => s.refresh);
-  const initWalletConnect = useWalletConnect((s) => s.init);
+  const refreshMarket = useMarket((s) => s.refresh);
 
   // 1) Hydrate persisted session prefs (autolock/biometric flags, etc.),
   //    non-secret account metadata (addresses/labels only), the token
@@ -61,7 +58,22 @@ export default function RootLayout() {
     hydrateTokens().catch(() => {});
     hydrateNotifications().catch(() => {});
     refreshNotificationFeed().catch(() => {});
-  }, [hydrate, hydrateAccounts, hydrateTokens, hydrateNotifications, refreshNotificationFeed]);
+    // Warm the price cache at launch so a token screen already has a number
+    // to show instead of fetching one after the user taps in. Silent and
+    // failure-tolerant: prices are decoration, and balances/send/receive all
+    // work without them.
+    refreshMarket().catch(() => {});
+  }, [hydrate, hydrateAccounts, hydrateTokens, hydrateNotifications, refreshNotificationFeed, refreshMarket]);
+
+  // Keep prices reasonably live while the app is open. The server refreshes
+  // its own cache every 60s, so polling faster than that would just re-read
+  // identical rows.
+  useEffect(() => {
+    const id = setInterval(() => {
+      refreshMarket().catch(() => {});
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [refreshMarket]);
 
   // 1b) Deep-link from a tapped OS notification banner into the right
   //     in-app screen (same routing the in-app bell list uses), switching
@@ -91,46 +103,7 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [refreshNotificationFeed]);
 
-  // WalletConnect's relay connection only makes sense once there's a wallet
-  // to connect — initialize lazily on first unlock, not at cold start.
-  useEffect(() => {
-    if (isUnlocked) initWalletConnect().catch(() => {});
-  }, [isUnlocked, initWalletConnect]);
 
-  // 1c) Deep-link pairing: a dapp's "Connect Wallet" flow hands the OS
-  //     either our custom scheme (decentwallet://wc?uri=wc:...) or a
-  //     universal link (https://decentroneum.com/wc?uri=wc:...); either way
-  //     we land here with a URL to pull the wc: URI out of. If the wallet
-  //     is still locked when it arrives (cold start via deep link), stash
-  //     it and pair automatically the moment the user unlocks instead of
-  //     silently dropping it.
-  const pendingWcUriRef = useRef<string | null>(null);
-
-  const handleIncomingUrl = useCallback((url: string | null) => {
-    const uri = extractWcUri(url);
-    if (!uri) return;
-
-    if (useSession.getState().isUnlocked && useWalletConnect.getState().initialized) {
-      useWalletConnect.getState().pair(uri).catch(() => {});
-    } else {
-      pendingWcUriRef.current = uri;
-    }
-  }, []);
-
-  useEffect(() => {
-    Linking.getInitialURL().then(handleIncomingUrl).catch(() => {});
-    const sub = Linking.addEventListener("url", (e) => handleIncomingUrl(e.url));
-    return () => sub.remove();
-  }, [handleIncomingUrl]);
-
-  useEffect(() => {
-    if (!isUnlocked || !pendingWcUriRef.current) return;
-    const uri = pendingWcUriRef.current;
-    pendingWcUriRef.current = null;
-    initWalletConnect()
-      .then(() => useWalletConnect.getState().pair(uri))
-      .catch(() => {});
-  }, [isUnlocked, initWalletConnect]);
 
   // Avoid stale closure inside AppState listener
   const autoLockRef = useRef(autoLockEnabled);
@@ -167,14 +140,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="send" options={{ presentation: "modal" }} />
         <Stack.Screen name="notifications" options={{ presentation: "modal" }} />
-        <Stack.Screen name="scan" options={{ presentation: "modal" }} />
       </Stack>
-      {isUnlocked ? (
-        <>
-          <SessionProposalSheet />
-          <SessionRequestSheet />
-        </>
-      ) : null}
 
       {/* Global toast — mounted last so it paints above every screen. */}
       <ToastHost />

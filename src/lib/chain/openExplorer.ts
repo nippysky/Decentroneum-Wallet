@@ -38,3 +38,17 @@ export function openInApp(url: string) {
   if (!url) return;
   openInAppBrowser(url);
 }
+
+/**
+ * Open a plain web page with NO wallet provider and NO unlock requirement.
+ *
+ * Use this for anything reachable before a wallet exists — Terms of Service,
+ * Privacy Policy, support pages. openInApp() routes through the full dApp
+ * browser, which redirects to /unlock when the session is locked; on the
+ * onboarding screen that is a dead end, because the user has not created a
+ * passcode yet.
+ */
+export function openInfoPage(url: string) {
+  if (!url) return;
+  router.push({ pathname: "/browser/web" as any, params: { url, readonly: "1" } });
+}

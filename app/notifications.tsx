@@ -74,7 +74,7 @@ export default function NotificationsScreen() {
                 </T>
               </Pressable>
             ) : null}
-            <Pressable
+            <Pressable hitSlop={6}
               onPress={() => router.back()}
               style={({ pressed }) => ({
                 width: 38,
@@ -117,7 +117,7 @@ export default function NotificationsScreen() {
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: SPACING.xxl }}>
             <View style={{ gap: 2 }}>
               {items.map((item) => (
-                <Pressable
+                <Pressable hitSlop={6}
                   key={item.id}
                   onPress={() => onOpenItem(item)}
                   style={({ pressed }) => ({

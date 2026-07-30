@@ -243,7 +243,11 @@ export default function Browser() {
   if (!isUnlocked) return <Redirect href="/unlock" />;
 
   return (
-    <Screen>
+    // edges={["top"]}: the tab bar below this screen is now IN FLOW and
+    // carries the bottom safe area itself (see app/(tabs)/_layout.tsx).
+    // Reserving it here as well would double-count the inset and leave a
+    // visible dead strip above the bar.
+    <Screen edges={["top"]}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: SPACING.xxl }}
         keyboardShouldPersistTaps="handled"
@@ -289,7 +293,7 @@ export default function Browser() {
                 paddingVertical: 6,
               }}
             />
-            <Pressable
+            <Pressable hitSlop={6}
               onPress={() => go(value)}
               style={({ pressed }) => [
                 {
@@ -313,7 +317,7 @@ export default function Browser() {
               <View style={{ height: SPACING.md }} />
               <View>
                 {suggestions.map((s) => (
-                  <Pressable
+                  <Pressable hitSlop={6}
                     key={`${s.kind}:${s.url}`}
                     onPress={() => go(s.url)}
                     style={({ pressed }) => ({
@@ -373,7 +377,7 @@ export default function Browser() {
 
             <View>
               {FEATURED.map((d) => (
-                <Pressable
+                <Pressable hitSlop={6}
                   key={d.url}
                   onPress={() => go(d.url)}
                   style={({ pressed }) => ({
@@ -439,7 +443,7 @@ export default function Browser() {
             {recents.length ? (
               <View>
                 {visibleRecents.map((r) => (
-                  <Pressable
+                  <Pressable hitSlop={6}
                     key={r.url}
                     onPress={() => go(r.url)}
                     style={({ pressed }) => ({

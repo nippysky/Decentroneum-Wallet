@@ -218,7 +218,11 @@ export default function Wallet() {
   const showTokenSkeleton = tokenLoading && Object.keys(tokenBalances).length === 0;
 
   return (
-    <Screen>
+    // edges={["top"]}: the tab bar below this screen is now IN FLOW and
+    // carries the bottom safe area itself (see app/(tabs)/_layout.tsx).
+    // Reserving it here as well would double-count the inset and leave a
+    // visible dead strip above the bar.
+    <Screen edges={["top"]}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: SPACING.xxl }}
         // ✅ RefreshControl driven ONLY by pullRefreshing
@@ -233,7 +237,7 @@ export default function Wallet() {
 
             {/* Manual refresh is pull-to-refresh now (see RefreshControl
                 above) — this spot is the notifications bell instead. */}
-            <Pressable
+            <Pressable hitSlop={6}
               onPress={() => router.push("/notifications")}
               style={({ pressed }) => ({
                 width: 40,
@@ -285,7 +289,7 @@ export default function Wallet() {
           {/* Balance hero — quiet, no card chrome, the number does the talking.
               Tappable straight into the native ETN detail page, same as any
               token row below. */}
-          <Pressable onPress={() => router.push("/token/native")} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>
+          <Pressable hitSlop={6} onPress={() => router.push("/token/native")} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>
             <T variant="caption" color={theme.muted}>
               Balance
             </T>
@@ -383,7 +387,7 @@ export default function Wallet() {
                   const balText = formatUnits2dp(raw, t.decimals);
 
                   return (
-                    <Pressable
+                    <Pressable hitSlop={6}
                       key={t.address}
                       onPress={() => router.push(`/token/${t.address}`)}
                       style={({ pressed }) => ({

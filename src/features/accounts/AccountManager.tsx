@@ -5,18 +5,17 @@
 // the Home dashboard.
 import React, { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, TextInput, View, StyleSheet } from "react-native";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { ethers } from "ethers";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
+import { hapticSelect, hapticSuccess } from "@/src/lib/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { T } from "@/src/components/T";
 import { Button } from "@/src/components/Button";
 import { toast } from "@/src/state/toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { RADIUS, SPACING } from "@/src/theme/tokens";
+import { RADIUS, SCREEN_PADDING, SPACING } from "@/src/theme/tokens";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
 import { useNotificationFeed } from "@/src/state/notificationsFeed";
@@ -58,31 +57,32 @@ function Avatar({ label, active }: { label: string; active: boolean }) {
 // edge-tap that silently closes a sheet mid-action is worse than one extra
 // deliberate tap on a close button — every sheet here has an explicit
 // close/cancel affordance instead.
+// Every sheet in this file is full-screen. No backdrop, no side margins, no
+// peek-through of the screen behind. The previous half-sheet left a blurred
+// strip down both edges and a rounded card floating in the middle, which
+// made a wallet action look like a cookie banner — and the visible margin
+// invited backdrop taps that were deliberately ignored, so the sheet read as
+// unresponsive.
 function Backdrop({ children }: { children: React.ReactNode }) {
-  return (
-    <View style={{ flex: 1 }}>
-      <BlurView intensity={30} tint="default" style={StyleSheet.absoluteFill} />
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>{children}</View>
-    </View>
-  );
+  const { theme } = useTheme();
+  return <View style={{ flex: 1, backgroundColor: theme.bg }}>{children}</View>;
 }
 
-// Full-bleed sheet: edge-to-edge horizontally so account rows get the whole
-// screen width to breathe, rounded only at the top like a native sheet.
 function SheetShell({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   return (
     <View
       style={{
-        backgroundColor: theme.bgElevated,
-        borderTopLeftRadius: RADIUS.xxl,
-        borderTopRightRadius: RADIUS.xxl,
-        paddingTop: SPACING.lg,
-        paddingHorizontal: SPACING.lg,
+        flex: 1,
+        backgroundColor: theme.bg,
+        // Safe area on BOTH ends: the header never slides under the notch,
+        // and the last control never sits under the home indicator or an
+        // Android gesture bar.
+        paddingTop: insets.top + SPACING.md,
+        paddingHorizontal: SCREEN_PADDING,
         paddingBottom: Math.max(insets.bottom, SPACING.lg),
         gap: SPACING.md,
-        maxHeight: "88%",
       }}
     >
       {children}
@@ -104,7 +104,7 @@ function ActionRow({
   const { theme } = useTheme();
   const tint = danger ? theme.danger : theme.text;
   return (
-    <Pressable
+    <Pressable hitSlop={6}
       onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: "row",
@@ -180,7 +180,7 @@ function AddAccountSheet({ visible, onClose }: { visible: boolean; onClose: () =
     setErr(null);
     try {
       await addAccount(vaultKey, { mnemonic: phrase, label: label.trim() || undefined });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      hapticSuccess();
       close();
     } catch (e: any) {
       setErr(e?.message ?? "Failed to add account");
@@ -204,7 +204,7 @@ function AddAccountSheet({ visible, onClose }: { visible: boolean; onClose: () =
     setBusy(true);
     try {
       await addAccount(vaultKey, { mnemonic: cleaned, label: label.trim() || undefined });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      hapticSuccess();
       close();
     } catch (e: any) {
       setErr(e?.message ?? "Failed to add account");
@@ -214,7 +214,7 @@ function AddAccountSheet({ visible, onClose }: { visible: boolean; onClose: () =
   };
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={close}>
+    <Modal visible={visible} animationType="slide" presentationStyle="overFullScreen" transparent={false} statusBarTranslucent onRequestClose={close}>
       <Backdrop>
         <SheetShell>
           <ScrollView showsVerticalScrollIndicator={false}>
@@ -222,7 +222,7 @@ function AddAccountSheet({ visible, onClose }: { visible: boolean; onClose: () =
               <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
                 {mode === "choose" ? "Add account" : mode === "create" ? "New account" : "Import account"}
               </T>
-              <Pressable onPress={close} style={{ padding: 8 }}>
+              <Pressable hitSlop={6} onPress={close} style={{ padding: 8 }}>
                 <Ionicons name="close" size={18} color={theme.text} />
               </Pressable>
             </View>
@@ -230,7 +230,7 @@ function AddAccountSheet({ visible, onClose }: { visible: boolean; onClose: () =
             {mode === "choose" ? (
               <View style={{ gap: SPACING.md }}>
                 <T color={theme.muted}>Manage more than one wallet inside Decent Wallet — switch instantly, no need to sign out.</T>
-                <Pressable
+                <Pressable hitSlop={6}
                   onPress={beginCreate}
                   disabled={busy}
                   style={({ pressed }) => ({
@@ -249,7 +249,7 @@ function AddAccountSheet({ visible, onClose }: { visible: boolean; onClose: () =
                     <T variant="caption" color={theme.muted}>Generates a brand-new recovery phrase</T>
                   </View>
                 </Pressable>
-                <Pressable
+                <Pressable hitSlop={6}
                   onPress={() => setMode("import")}
                   disabled={busy}
                   style={({ pressed }) => ({
@@ -472,7 +472,7 @@ export function AccountManager() {
     <View style={{ gap: SPACING.sm }}>
       {/* Collapsed summary — tapping opens the full list in a sheet, so
           Settings doesn't scroll forever once someone has several accounts. */}
-      <Pressable
+      <Pressable hitSlop={6}
         onPress={() => setManageOpen(true)}
         style={({ pressed }) => ({
           flexDirection: "row",
@@ -505,12 +505,12 @@ export function AccountManager() {
           content change behind the same blurred backdrop. With "none"
           the swap is instant and the backdrop provides the continuity. */}
       {/* Full manage sheet */}
-      <Modal visible={manageOpen} transparent animationType="fade" onRequestClose={() => setManageOpen(false)}>
+      <Modal visible={manageOpen} animationType="slide" presentationStyle="overFullScreen" transparent={false} statusBarTranslucent onRequestClose={() => setManageOpen(false)}>
         <Backdrop>
           <SheetShell>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>Accounts</T>
-              <Pressable onPress={() => setManageOpen(false)} style={{ padding: 8 }}>
+              <Pressable hitSlop={6} onPress={() => setManageOpen(false)} style={{ padding: 8 }}>
                 <Ionicons name="close" size={18} color={theme.text} />
               </Pressable>
             </View>
@@ -520,11 +520,11 @@ export function AccountManager() {
                 {accounts.map((a) => {
                   const active = a.id === activeAccountId;
                   return (
-                    <Pressable
+                    <Pressable hitSlop={6}
                       key={a.id}
                       onPress={async () => {
                         if (active) return;
-                        await Haptics.selectionAsync().catch(() => {});
+                        hapticSelect();
                         await switchAccount(a.id);
                         toast.success(`Switched to ${a.label}`);
                       }}
@@ -586,7 +586,7 @@ export function AccountManager() {
                   );
                 })}
 
-                <Pressable
+                <Pressable hitSlop={6}
                   onPress={openAdd}
                   style={({ pressed }) => ({
                     flexDirection: "row",
@@ -620,11 +620,11 @@ export function AccountManager() {
             Modals is what froze touch handling before. */}
         {actionsFor ? (
           <View style={StyleSheet.absoluteFill}>
-            <Pressable
+            <Pressable hitSlop={6}
               onPress={() => setActionsFor(null)}
               style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end" }}
             >
-              <Pressable
+              <Pressable hitSlop={6}
                 onPress={() => {}}
                 style={{
                   backgroundColor: theme.bgElevated,
@@ -674,7 +674,7 @@ export function AccountManager() {
       <AddAccountSheet visible={addOpen} onClose={closeAdd} />
 
       {/* Rename sheet */}
-      <Modal visible={!!editing} transparent animationType="none" onRequestClose={closeEdit}>
+      <Modal visible={!!editing} animationType="slide" presentationStyle="overFullScreen" transparent={false} statusBarTranslucent onRequestClose={closeEdit}>
         <Backdrop>
           <SheetShell>
             <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>Rename account</T>
@@ -698,7 +698,7 @@ export function AccountManager() {
       </Modal>
 
       {/* Remove confirm */}
-      <Modal visible={!!removing} transparent animationType="none" onRequestClose={closeRemove}>
+      <Modal visible={!!removing} animationType="slide" presentationStyle="overFullScreen" transparent={false} statusBarTranslucent onRequestClose={closeRemove}>
         <Backdrop>
           <SheetShell>
             <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>Remove account?</T>

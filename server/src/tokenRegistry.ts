@@ -8,16 +8,22 @@
 // would, silently) a token appeared in every user's wallet while generating
 // zero notifications, with nothing anywhere reporting the mismatch.
 //
-// Now the registry is the single source of truth and this fetches it. The
-// env var survives as a fallback so the watcher can never go dark:
+// Now the registry is the single source of truth and this fetches it, with a
+// three-tier chain so the watcher can never go dark:
 //
 //   1. Fetch the published registry (authoritative).
 //   2. On failure, keep the last good list we already had in memory.
-//   3. If we never got one — e.g. a restart during an outage — fall back to
-//      TRACKED_TOKENS from the environment.
+//   3. If we never got one — e.g. a restart during an outage — read the last
+//      good list from SQLite.
 //
-// Keep TRACKED_TOKENS populated for exactly that third case.
-import { config } from "./config";
+// Tier 3 used to be a hand-maintained TRACKED_TOKENS env var, and it had
+// already drifted: it listed DCNT but not BOLT, months after BOLT was listed.
+// That is the worst possible kind of stale, because tier 3 is consulted ONLY
+// during an outage — the one moment nobody is watching closely enough to
+// notice the list is wrong. Persisting the real registry to disk on every
+// successful fetch gives the same protection with no duplicate to maintain
+// and no way for it to drift.
+import { loadRegistryCache, saveRegistryCache } from "./db";
 
 const REGISTRY_URL = process.env.TOKEN_REGISTRY_URL ?? "https://decentroneum.com/api/token-list.json";
 const REFRESH_INTERVAL_MS = Number(process.env.TOKEN_REGISTRY_REFRESH_MS ?? 30 * 60 * 1000); // 30m
@@ -26,6 +32,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 /** Lowercased contract addresses currently being watched. */
 let tracked: string[] = [];
 let lastGoodAt: number | null = null;
+let usingCache = false;
 let timer: NodeJS.Timeout | null = null;
 
 function normalize(list: unknown): string[] {
@@ -77,12 +84,19 @@ async function refresh(): Promise<void> {
 
   if (!next) {
     if (tracked.length === 0) {
-      const fallback = normalize(config.trackedTokens);
-      if (fallback.length > 0) {
-        tracked = fallback;
-        console.warn(`[registry] using TRACKED_TOKENS fallback (${tracked.length} token(s))`);
+      const cached = loadRegistryCache();
+      if (cached) {
+        tracked = normalize(cached.tokens);
+        usingCache = true;
+        console.warn(
+          `[registry] registry unreachable — using cached list from ${cached.fetchedAt} ` +
+            `(${tracked.length} token(s))`
+        );
       } else {
-        console.warn("[registry] no registry and no TRACKED_TOKENS — watching native transfers only");
+        // Only reachable on a genuinely first boot that can't reach the
+        // registry. Native ETN transfers still notify; token transfers don't
+        // until the next successful fetch.
+        console.warn("[registry] registry unreachable and no cache yet — watching native transfers only");
       }
     }
     return;
@@ -93,6 +107,10 @@ async function refresh(): Promise<void> {
 
   tracked = next;
   lastGoodAt = Date.now();
+  usingCache = false;
+  // Persist on every success, so the cold-start fallback is never older than
+  // the last time the registry was actually reachable.
+  saveRegistryCache(next);
 
   if (changed) {
     console.log(`[registry] tracking ${tracked.length} token(s): ${tracked.join(", ")}`);
@@ -133,6 +151,7 @@ export function tokenRegistryStatus() {
     count: tracked.length,
     tokens: tracked,
     lastGoodAt: lastGoodAt ? new Date(lastGoodAt).toISOString() : null,
-    usingFallback: lastGoodAt === null && tracked.length > 0,
+    // True when serving the SQLite cache because the registry is unreachable.
+    usingCache,
   };
 }

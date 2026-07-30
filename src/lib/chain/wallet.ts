@@ -36,7 +36,7 @@ const ERC20_ABI = [
 // failure mode entirely.
 //
 // This ONLY applies to transactions the wallet itself builds and sends
-// (SendSheet, WalletConnect tx approval, in-app browser tx approval — all of
+// (SendSheet and in-app browser tx approval — both of
 // which route through estimateFees below). It must never be applied to a raw
 // `eth_estimateGas` RPC response handed back to a dApp over the injected
 // provider — that's a passthrough of the node's real answer, and altering it

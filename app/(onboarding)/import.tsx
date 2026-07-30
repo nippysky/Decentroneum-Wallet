@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "reac
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { ethers } from "ethers";
-import * as Haptics from "expo-haptics";
+import { hapticTap } from "@/src/lib/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 
@@ -13,6 +13,7 @@ import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
 import { OnboardingProgress } from "@/src/components/OnboardingProgress";
 import { useTheme } from "@/src/theme/ThemeProvider";
+import { useScreenGuard } from "@/src/lib/security/screenGuard";
 import { SPACING } from "@/src/theme/tokens";
 
 function normalizePhrase(raw: string) {
@@ -33,6 +34,10 @@ export default function ImportWallet() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+
+  // A phrase being typed in is just as sensitive as one being displayed —
+  // same guard as the create/confirm/view screens.
+  useScreenGuard(true);
 
   const [phrase, setPhrase] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,7 +66,7 @@ export default function ImportWallet() {
 
     try {
       setBusy(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      hapticTap();
       ethers.HDNodeWallet.fromPhrase(cleaned);
       router.push({ pathname: "/(onboarding)/passcode", params: { mnemonic: cleaned } });
     } catch {
@@ -84,7 +89,15 @@ export default function ImportWallet() {
             <Pressable
               onPress={() => router.back()}
               hitSlop={10}
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              style={({ pressed }) => ({
+                width: 40,
+                height: 40,
+                marginLeft: -10,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: pressed ? theme.surface2 : "transparent",
+              })}
               accessibilityRole="button"
               accessibilityLabel="Back"
             >
@@ -97,13 +110,13 @@ export default function ImportWallet() {
 
           <View style={{ height: SPACING.xxl }} />
 
-          <T weight="bold" style={{ fontSize: 40, lineHeight: 46, letterSpacing: -1.2 }}>
+          <T weight="bold" style={{ fontSize: 34, lineHeight: 40, letterSpacing: -1 }}>
             Import wallet
           </T>
 
           <View style={{ height: SPACING.sm }} />
 
-          <T color={theme.muted} style={{ fontSize: 17, lineHeight: 24 }}>
+          <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23 }}>
             Paste your 12 or 24-word recovery phrase.
           </T>
 
@@ -123,10 +136,16 @@ export default function ImportWallet() {
                 }
               }}
               disabled={busy}
-              hitSlop={8}
-              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              hitSlop={10}
+              style={({ pressed }) => ({
+                minHeight: 36,
+                paddingHorizontal: 14,
+                borderRadius: 999,
+                justifyContent: "center",
+                backgroundColor: pressed ? theme.border : theme.surface2,
+              })}
             >
-              <T variant="caption" weight="semibold" color={theme.accent}>
+              <T variant="caption" weight="semibold" color={theme.text}>
                 Paste
               </T>
             </Pressable>
@@ -162,7 +181,7 @@ export default function ImportWallet() {
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
-              keyboardAppearance={theme.bg === "#060807" ? "dark" : "default"}
+              keyboardAppearance={theme.isDark ? "dark" : "default"}
               selectionColor={theme.accent}
               editable={!busy}
             />

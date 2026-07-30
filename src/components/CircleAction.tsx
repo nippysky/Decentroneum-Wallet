@@ -26,7 +26,7 @@ export function CircleAction({
   const { theme } = useTheme();
 
   return (
-    <Pressable
+    <Pressable hitSlop={6}
       onPress={onPress}
       disabled={disabled}
       style={({ pressed }) => ({ alignItems: "center", gap: 8, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 })}

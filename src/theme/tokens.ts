@@ -6,6 +6,15 @@
 // Every color below is derived from those two anchors plus neutral greys.
 
 export type Theme = {
+  /**
+   * Which end of the brand this palette is.
+   *
+   * Exists so nothing has to infer the mode by comparing a colour to a
+   * literal — there were six `theme.bg === "#060807"` checks scattered
+   * around the app, each of which silently became "always light mode" the
+   * moment anyone touched the dark background value by a single digit.
+   */
+  isDark: boolean;
   bg: string;
   bgElevated: string;
   surface: string;
@@ -46,6 +55,7 @@ export type Theme = {
 const LIGHT_ACCENT = "#131418";
 
 export const light: Theme = {
+  isDark: false,
   bg: "#FAF7F2",
   bgElevated: "#FFFFFF",
   surface: "#FFFFFF",
@@ -66,6 +76,7 @@ export const light: Theme = {
 };
 
 export const dark: Theme = {
+  isDark: true,
   bg: "#060807",
   bgElevated: "#0E1210",
   surface: "#0B0F0C",

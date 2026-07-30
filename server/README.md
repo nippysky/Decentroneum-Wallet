@@ -20,10 +20,11 @@ server, can do that. This is that server.
    the instant they happen, rather than us asking on a timer. It watches for:
    - native ETN transfers to any registered address (found by inspecting
      each new block's transactions — native transfers emit no log)
-   - ERC-20 `Transfer` events for the tracked token list (`TRACKED_TOKENS`
-     env var — extend this, or fetch it dynamically from
-     `https://decentroneum.com/api/token-list.json`) to any registered
-     address
+   - ERC-20 `Transfer` events for every token in the published registry at
+     `https://decentroneum.com/api/token-list.json`, to any registered
+     address. The list is fetched at boot and refreshed every 30 minutes, so
+     listing a token needs no server change. If the registry is ever
+     unreachable at boot, the last good list is read from SQLite.
 
    A low-frequency HTTP reconcile pass (`RECONCILE_INTERVAL_MS`, default
    30s) and automatic reconnect-with-backoff cover the two edge cases a pure
@@ -43,7 +44,7 @@ things that need to be shared across instances).
 
 ```bash
 cd server
-cp .env.example .env      # fill in RPC_URL, TRACKED_TOKENS, etc.
+cp .env.example .env      # fill in RPC_URL, RPC_WS_URL, MARKET_API_KEY
 npm install
 npm run dev                # tsx watch — restarts on change
 ```
@@ -61,7 +62,7 @@ npm start
 # on the droplet
 mkdir -p /var/www/decent-wallet-push && cd /var/www/decent-wallet-push
 # copy server/ here (scp/rsync/git clone — whatever you use for the other two APIs)
-cp .env.example .env && nano .env      # fill in RPC_URL, RPC_WS_URL, TRACKED_TOKENS
+cp .env.example .env && nano .env      # fill in RPC_URL, RPC_WS_URL, MARKET_API_KEY
 npm install
 npm run build
 pm2 start ecosystem.config.js
@@ -89,10 +90,6 @@ Update `PUSH_SERVER_URL` in `src/lib/notifications/register.ts` (main app) to ma
 - **EAS project ID**: `app.json`'s `extra.eas.projectId` is a placeholder —
   set it to a real EAS project so `Notifications.getExpoPushTokenAsync()`
   can mint real Expo push tokens on-device.
-- **Scale the token list**: `TRACKED_TOKENS` is a static env var here for
-  simplicity; wire it up to the same token registry the app uses
-  (`src/lib/tokens/registry.ts` → `REGISTRY_URL`) so newly-approved tokens
-  get watched automatically instead of requiring a redeploy.
 - **RPC reliability**: point `RPC_URL` at a dedicated/paid RPC endpoint for
   production traffic rather than a shared public one.
 - **Horizontal scaling**: if you outgrow one instance, move `cursor` and

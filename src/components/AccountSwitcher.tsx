@@ -28,7 +28,7 @@
 // label cross-fade cleanly instead of reflowing mid-flight.
 import React, { useCallback, useEffect, useRef } from "react";
 import { Animated, Easing, Pressable, ScrollView, View } from "react-native";
-import * as Haptics from "expo-haptics";
+import { hapticSelect } from "@/src/lib/haptics";
 
 import { T } from "@/src/components/T";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -76,7 +76,7 @@ function AccountChip({
   const expandedWidth = expandedWidthFor(account.label);
 
   return (
-    <Pressable
+    <Pressable hitSlop={6}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
@@ -142,7 +142,7 @@ export function AccountSwitcher({
   const handlePress = useCallback(
     (a: SwitchableAccount, active: boolean) => {
       if (active) return;
-      Haptics.selectionAsync().catch(() => {});
+      hapticSelect();
       onSwitch(a);
     },
     [onSwitch]

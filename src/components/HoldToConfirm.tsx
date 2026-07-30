@@ -1,5 +1,5 @@
 // src/ui/HoldToConfirm.tsx
-import * as Haptics from "expo-haptics";
+import { hapticSuccess } from "@/src/lib/haptics";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, ViewStyle } from "react-native";
 import { T } from "@/src/components/T";
@@ -53,7 +53,7 @@ export function HoldToConfirm({
 
     timerRef.current = setTimeout(async () => {
       reset();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      hapticSuccess();
       onConfirmed();
     }, ms);
   };

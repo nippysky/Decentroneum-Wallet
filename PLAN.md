@@ -10,7 +10,7 @@
 The existing app is a real, working MVP — not a prototype. Worth keeping and building on:
 
 - **Security core is sound**: `expo-secure-store` vault, scrypt KDF + `tweetnacl` `secretbox` encryption, biometric-gated PIN storage, auto-lock on background, hold-to-confirm sends, 30s auto-hiding recovery-phrase reveal.
-- **Chain layer** (`ethers` v6): native ETN balance/send, ERC-20 balance/send, EIP-1559-aware fee estimation with legacy fallback, dApp tx normalization for WalletConnect.
+- **Chain layer** (`ethers` v6): native ETN balance/send, ERC-20 balance/send, EIP-1559-aware fee estimation with legacy fallback, dApp tx normalization for the in-app browser bridge.
 - **UI foundation**: Lexend typeface, dark palette already `#060807` bg / `#4DEE54` accent — this **already matches decentroneum.com's own `theme-color` (`#060807`)**, so the brand line is correct today; it needs refinement, not replacement.
 - **Gaps**: single account only, one hardcoded token (DCNT), "Browser" tab conflates dApp browsing with "explorer" and still lists **Panthart** (decommissioned), no push notifications, no multi-account, Expo 54 instead of latest 57, flat (non-feature-based) folder structure.
 
@@ -43,7 +43,7 @@ Onboarding  → Welcome → Create/Import → Passcode → (Biometric opt-in) �
 Tabs (unlocked): Home · Explorer · Browser · Settings
 Home        → Account switcher · Portfolio value · Asset list → Send/Receive/Swap-out-link/Buy-out-link
 Explorer    → Network stats → Address activity (mine) → Tx detail → Search any address/tx/token
-Browser     → dApp browsing (WalletConnect-first), recents, curated ecosystem list (Panthart removed)
+Browser     → dApp browsing (injected EIP-1193 provider), recents, curated ecosystem list (Panthart removed)
 Settings    → Accounts (add/import/rename/remove/switch) · Security · Notifications · Appearance · Network · About
 ```
 
@@ -184,4 +184,4 @@ All four phases above were executed in this session, not just planned:
 - **Verification**: multiple clean `tsc --noEmit` passes throughout, plus a standalone import-resolution check after the final restructure (148 local imports across 55 files, zero broken).
 
 ### What's next (not done in this pass — realistic scope for a follow-up)
-Deeper per-screen visual redesign (Send/Receive sheet restyle, onboarding create/import visual overhaul), WalletConnect v2 wiring for the multi-account switcher inside the in-app browser, the server-side push-notification backend described in §6, and native `expo prebuild` regeneration of `android/`/`ios/` from the new `app.json`.
+Deeper per-screen visual redesign (Send/Receive sheet restyle, onboarding create/import visual overhaul), the server-side push-notification backend described in §6, and native `expo prebuild` regeneration of `android/`/`ios/` from the new `app.json`.

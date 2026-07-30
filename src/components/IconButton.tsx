@@ -2,7 +2,7 @@
 import React from "react";
 import { Pressable, ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
+import { hapticTap } from "@/src/lib/haptics";
 import { useTheme } from "@/src/theme/ThemeProvider";
 
 export function IconButton({
@@ -42,7 +42,7 @@ export function IconButton({
       accessibilityLabel={accessibilityLabel}
       disabled={disabled}
       onPress={async () => {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        hapticTap();
         onPress();
       }}
       style={({ pressed }) => [

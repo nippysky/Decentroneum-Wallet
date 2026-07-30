@@ -350,7 +350,7 @@ export default function SendScreen() {
           <T weight="bold" style={{ fontSize: 24, lineHeight: 29 }}>
             {step === "review" ? "Review" : step === "success" ? "Sent" : "Send"}
           </T>
-          <Pressable
+          <Pressable hitSlop={6}
             onPress={() => router.back()}
             style={({ pressed }) => ({
               width: 38,
@@ -377,7 +377,7 @@ export default function SendScreen() {
                 <T variant="caption" color={theme.muted}>
                   Asset
                 </T>
-                <Pressable
+                <Pressable hitSlop={6}
                   onPress={() => setPickerOpen(true)}
                   style={({ pressed }) => ({
                     padding: 14,
@@ -455,7 +455,7 @@ export default function SendScreen() {
                         single account this would be a button that can only
                         ever produce a self-transfer. */}
                     {otherAccounts.length > 0 ? (
-                      <Pressable
+                      <Pressable hitSlop={6}
                         onPress={() => setAccountPickerOpen(true)}
                         style={({ pressed }) => ({
                           flexDirection: "row",
@@ -473,7 +473,7 @@ export default function SendScreen() {
                       </Pressable>
                     ) : null}
 
-                    <Pressable onPress={onPasteTo} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1, padding: 6 })}>
+                    <Pressable hitSlop={6} onPress={onPasteTo} style={({ pressed }) => ({ opacity: pressed ? 0.9 : 1, padding: 6 })}>
                       <T variant="caption" weight="semibold" color={theme.muted}>
                         Paste
                       </T>
@@ -532,7 +532,7 @@ export default function SendScreen() {
                   <T variant="caption" color={theme.muted}>
                     Amount
                   </T>
-                  <Pressable
+                  <Pressable hitSlop={6}
                     onPress={onPressMax}
                     disabled={!canMax}
                     style={({ pressed }) => ({ opacity: !canMax ? 0.45 : pressed ? 0.9 : 1, padding: 6 })}
@@ -717,7 +717,7 @@ export default function SendScreen() {
             </T>
 
             {sentHash ? (
-              <Pressable
+              <Pressable hitSlop={6}
                 onPress={() => openExplorerTx(sentHash)}
                 style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.7 : 1 })}
               >
@@ -746,7 +746,7 @@ export default function SendScreen() {
             <View style={{ paddingHorizontal: SPACING.lg }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <T variant="h1">Send to my account</T>
-                <Pressable
+                <Pressable hitSlop={6}
                   onPress={() => setAccountPickerOpen(false)}
                   style={({ pressed }) => ({
                     width: 38,
@@ -776,7 +776,7 @@ export default function SendScreen() {
             >
               <View style={{ gap: SPACING.sm }}>
                 {otherAccounts.map((a) => (
-                  <Pressable
+                  <Pressable hitSlop={6}
                     key={a.id}
                     onPress={() => {
                       setTo(a.address);
@@ -833,7 +833,7 @@ export default function SendScreen() {
                 <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
                   Choose asset
                 </T>
-                <Pressable
+                <Pressable hitSlop={6}
                   onPress={closePicker}
                   style={({ pressed }) => ({
                     width: 38,
@@ -905,7 +905,7 @@ export default function SendScreen() {
               renderItem={({ item }) => {
                 const selected = item.kind === "native" ? asset.kind === "native" : asset.kind === "token" && asset.token.address.toLowerCase() === item.token.address.toLowerCase();
                 return (
-                  <Pressable
+                  <Pressable hitSlop={6}
                     onPress={() => {
                       setAsset(item);
                       closePicker();

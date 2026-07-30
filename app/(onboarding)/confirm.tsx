@@ -3,7 +3,9 @@ import { Button } from "@/src/components/Button";
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
 import { OnboardingProgress } from "@/src/components/OnboardingProgress";
-import * as Haptics from "expo-haptics";
+import { TextButton } from "@/src/components/TextButton";
+import { useScreenGuard } from "@/src/lib/security/screenGuard";
+import { hapticTap } from "@/src/lib/haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -23,6 +25,10 @@ export default function Confirm() {
   const { theme } = useTheme();
   const { mnemonic } = useLocalSearchParams<{ mnemonic: string }>();
 
+  // The phrase is reconstructed on this screen as the user taps — same
+  // secret, same exposure, same guard as the screen that displayed it.
+  useScreenGuard(true);
+
   const words = useMemo(() => (mnemonic ?? "").split(" ").filter(Boolean), [mnemonic]);
   const pool = useMemo(() => shuffle(words.map((w, idx) => ({ id: `${w}-${idx}`, w }))), [words]);
 
@@ -36,7 +42,7 @@ export default function Confirm() {
   const pick = async (id: string) => {
     const item = available.find((x) => x.id === id);
     if (!item) return;
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    hapticTap();
     setPicked((p) => [...p, item]);
     setAvailable((a) => a.filter((x) => x.id !== id));
   };
@@ -44,7 +50,7 @@ export default function Confirm() {
   const unpick = async (id: string) => {
     const item = picked.find((x) => x.id === id);
     if (!item) return;
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    hapticTap();
     setPicked((p) => p.filter((x) => x.id !== id));
     setAvailable((a) => [...a, item]);
   };
@@ -85,15 +91,21 @@ export default function Confirm() {
                 <Pressable
                   key={x.id}
                   onPress={() => unpick(x.id)}
+                  hitSlop={4}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${x.w}`}
                   style={({ pressed }) => ({
-                    paddingHorizontal: 12,
-                    paddingVertical: 9,
+                    paddingHorizontal: 13,
+                    // 44pt-tall chips. These were 9pt of vertical padding
+                    // around a 17pt line — about 35pt total, under both
+                    // platforms' minimum, which is why taps kept missing.
+                    minHeight: 44,
+                    justifyContent: "center",
                     borderRadius: RADIUS.md,
-                    backgroundColor: theme.surface2,
+                    backgroundColor: pressed ? theme.border : theme.surface2,
                     flexDirection: "row",
                     gap: 7,
                     alignItems: "center",
-                    opacity: pressed ? 0.6 : 1,
                   })}
                 >
                   <T variant="caption" weight="semibold" color={theme.muted}>
@@ -123,13 +135,17 @@ export default function Confirm() {
             <Pressable
               key={x.id}
               onPress={() => pick(x.id)}
+              hitSlop={4}
+              accessibilityRole="button"
+              accessibilityLabel={x.w}
               style={({ pressed }) => ({
-                paddingHorizontal: 14,
-                paddingVertical: 11,
+                paddingHorizontal: 15,
+                minHeight: 44,
+                justifyContent: "center",
                 borderRadius: RADIUS.md,
                 borderWidth: 1,
-                borderColor: theme.border,
-                opacity: pressed ? 0.6 : 1,
+                borderColor: pressed ? theme.accent : theme.border,
+                backgroundColor: pressed ? theme.surface2 : "transparent",
               })}
             >
               <T weight="semibold">{x.w}</T>
@@ -137,7 +153,7 @@ export default function Confirm() {
           ))}
         </View>
 
-        <View style={{ marginTop: "auto", paddingTop: SPACING.xl, gap: SPACING.md }}>
+        <View style={{ marginTop: "auto", paddingTop: SPACING.xl, gap: SPACING.xs }}>
           <Button
             title="Continue"
             disabled={!complete}
@@ -148,14 +164,15 @@ export default function Confirm() {
               router.push({ pathname: "/(onboarding)/passcode", params: { mnemonic } });
             }}
           />
-          <Pressable
+          {/* "Start over" is a real control now — full-contrast semibold
+              text, an icon, and a 44pt pill-shaped target. As muted 12pt
+              text it read as a caption and people didn't know it was
+              tappable. */}
+          <TextButton
+            title="Start over"
+            icon="refresh-outline"
             onPress={() => router.replace("/(onboarding)/create")}
-            style={{ alignSelf: "center", padding: SPACING.md }}
-          >
-            <T variant="caption" weight="semibold" color={theme.muted}>
-              Start over
-            </T>
-          </Pressable>
+          />
         </View>
       </View>
     </Screen>

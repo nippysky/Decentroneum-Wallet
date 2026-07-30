@@ -1,11 +1,10 @@
 // app/(tabs)/_layout.tsx
 import React, { useMemo } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Haptics from "expo-haptics";
-import { BlurView } from "expo-blur";
+import { hapticSelect } from "@/src/lib/haptics";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 
@@ -38,8 +37,22 @@ function TabIcon({
 
 /**
  * Native-feeling, edge-to-edge tab bar. No floating card, no text labels —
- * just icons (filled when active) plus a small dot indicator, exactly like
- * the system tab bars this app is trying to feel as native as.
+ * just icons (filled when active) plus a small dot indicator.
+ *
+ * Two things here are load-bearing:
+ *
+ * 1. The bar is IN FLOW, not `position: absolute`. It used to be absolutely
+ *    positioned at bottom: 0, which meant it floated on top of the screen
+ *    content — and since <Screen> only reserves the safe-area inset, the bar
+ *    covered roughly the last 38pt of every tab. The bottom row of a list,
+ *    or a button sitting at the end of a screen, was underneath it.
+ *
+ * 2. Bottom padding is `insets.bottom + gap`, ADDITIVE, never `Math.max`.
+ *    max() treats the system inset and our own breathing room as the same
+ *    thing, so on a device with a 24pt gesture bar you get 24pt total: the
+ *    icons sit directly on the gesture bar with nothing between them. Adding
+ *    them keeps a consistent visual gap above the hardware no matter what
+ *    the device reports — gesture bar, three-button nav, or nothing at all.
  */
 function EdgeTabBar({ state, navigation }: any) {
   const { theme } = useTheme();
@@ -48,26 +61,19 @@ function EdgeTabBar({ state, navigation }: any) {
   return (
     <View
       style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
         borderTopWidth: 1,
         borderTopColor: theme.border,
         backgroundColor: theme.bg,
-        overflow: "hidden",
       }}
     >
-      {Platform.OS === "ios" ? (
-        <BlurView intensity={26} tint="default" style={{ position: "absolute", inset: 0 }} />
-      ) : null}
-
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           paddingTop: 10,
-          paddingBottom: Math.max(insets.bottom, 10),
+          // Floor of 8 covers devices that report no bottom inset at all
+          // (older Androids with a hardware nav bar outside the app surface).
+          paddingBottom: (insets.bottom || 8) + 8,
         }}
       >
         {state.routes.map((route: any, index: number) => {
@@ -75,7 +81,7 @@ function EdgeTabBar({ state, navigation }: any) {
           const focused = state.index === index;
 
           const onPress = async () => {
-            await Haptics.selectionAsync().catch(() => {});
+            hapticSelect();
             const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
             if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
           };
@@ -92,13 +98,16 @@ function EdgeTabBar({ state, navigation }: any) {
               onPress={onPress}
               onLongPress={onLongPress}
               accessibilityRole="button"
+              accessibilityState={{ selected: focused }}
               accessibilityLabel={name}
               style={({ pressed }) => ({
                 flex: 1,
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 5,
-                paddingVertical: 4,
+                // 48pt tall so the whole column is tappable, not just the
+                // 24pt glyph in the middle of it.
+                minHeight: 48,
                 opacity: pressed ? 0.6 : 1,
               })}
             >
