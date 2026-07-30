@@ -87,8 +87,10 @@ export function createServer() {
     const token = typeof req.query.token === "string" ? req.query.token : "";
     const range = typeof req.query.range === "string" ? req.query.range : "1D";
 
-    if (!ethers.isAddress(token)) {
-      return res.status(400).json({ ok: false, error: "Invalid or missing token address" });
+    // "native" is the sentinel for ETN itself — it has no contract address, so
+    // it can't pass an isAddress() check, but it does have a price line.
+    if (token !== "native" && !ethers.isAddress(token)) {
+      return res.status(400).json({ ok: false, error: 'Invalid token address (or "native" for ETN)' });
     }
     if (!(RANGE_KEYS as string[]).includes(range)) {
       return res.status(400).json({ ok: false, error: `range must be one of ${RANGE_KEYS.join(", ")}` });

@@ -12,14 +12,27 @@ function genId() {
  * — an expo-router path — is what the bell list and the OS banner tap both
  * deep-link to; callers should always include one.
  */
-export async function notifyLocal(opts: { title: string; body: string; data?: Record<string, unknown> }) {
+export async function notifyLocal(opts: {
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+  /**
+   * The asset's logo. Put in `data` so the in-app notification list can render
+   * the right icon, and — on Android — attached to the OS banner as its large
+   * image. iOS ignores attachments for locally scheduled notifications unless
+   * the file is on disk, so this is a data-only field there for now.
+   */
+  logoURI?: string;
+}) {
   const id = genId();
 
-  await insertNotification({ id, title: opts.title, body: opts.body, data: opts.data });
+  const data = { ...(opts.data ?? {}), ...(opts.logoURI ? { logoURI: opts.logoURI } : {}) };
+
+  await insertNotification({ id, title: opts.title, body: opts.body, data });
 
   try {
     await Notifications.scheduleNotificationAsync({
-      content: { title: opts.title, body: opts.body, data: { ...(opts.data ?? {}), notifId: id } },
+      content: { title: opts.title, body: opts.body, data: { ...data, notifId: id } },
       trigger: null, // fire immediately
     });
   } catch {

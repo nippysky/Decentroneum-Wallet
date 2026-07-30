@@ -24,6 +24,7 @@ import { Dimensions, View } from "react-native";
 import { T } from "@/src/components/T";
 import { PriceChart } from "@/src/components/PriceChart";
 import { RangePicker } from "@/src/components/RangePicker";
+import { ChangeIndicator } from "@/src/components/ChangeIndicator";
 import { TextButton } from "@/src/components/TextButton";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useMarket, type ChartRange, type TokenMarket } from "@/src/state/market";
@@ -37,6 +38,16 @@ function formatUsdPrice(v: number): string {
   if (v >= 0.01) return `$${v.toFixed(4)}`;
   // Below a cent, enough digits to tell two tokens apart.
   return `$${v.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
+/**
+ * Holdings value. Distinct from formatUsdCompact because rounding a real
+ * balance to "$0" is actively misleading — 2 DCNT is worth about a hundredth
+ * of a cent, and "$0" says you own nothing.
+ */
+function formatHoldingsUsd(v: number): string {
+  if (v > 0 && v < 0.01) return "< $0.01";
+  return formatUsdCompact(v);
 }
 
 function formatUsdCompact(v: number): string {
@@ -99,17 +110,20 @@ export function MarketPanel({
     refresh().catch(() => {});
   }, [refresh]);
 
-  // Native ETN has no pool, so there is no per-pool line to draw for it. Its
-  // price comes from CoinGecko, which is the one thing CoinGecko is used for.
+  // ETN has no contract address and no pool of its own — it IS what every pool
+  // is priced against — so its history is requested under the "native"
+  // sentinel and comes from CoinGecko rather than a DEX. Same endpoint, same
+  // shape, same chart.
+  const historyKey = isNative ? "native" : address;
+
   useEffect(() => {
-    if (isNative) return;
-    loadHistory(address, range).catch(() => {});
-  }, [address, range, isNative, loadHistory]);
+    loadHistory(historyKey, range).catch(() => {});
+  }, [historyKey, range, loadHistory]);
 
   const priceUsd = isNative ? native?.priceUsd ?? null : token?.priceUsd ?? null;
   const change24h = isNative ? native?.change24h ?? null : token?.change24h ?? null;
 
-  const chartKey = `${address.toLowerCase()}:${range}`;
+  const chartKey = `${historyKey.toLowerCase()}:${range}`;
   const points = history[chartKey] ?? [];
   const isLoading = !!historyLoading[chartKey];
 
@@ -127,15 +141,7 @@ export function MarketPanel({
             </T>
 
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              {change24h !== null ? (
-                <T
-                  weight="semibold"
-                  color={change24h >= 0 ? theme.accent : theme.danger}
-                  style={{ fontSize: 14 }}
-                >
-                  {change24h >= 0 ? "▲" : "▼"} {Math.abs(change24h).toFixed(2)}% today
-                </T>
-              ) : null}
+              <ChangeIndicator change={change24h} suffix="today" />
 
               {/* The token/ETN pairing — this is the price that actually lives
                   on-chain; the USD figure above is it multiplied by ETN/USD. */}
@@ -160,21 +166,24 @@ export function MarketPanel({
       </View>
 
       {/* ── Price line ─────────────────────────────────────────────────────── */}
-      {!isNative && priceUsd !== null ? (
+      {priceUsd !== null ? (
         <View style={{ gap: SPACING.sm }}>
           <PriceChart points={points} width={chartWidth} loading={isLoading} />
           <RangePicker value={range} onChange={setRange} />
         </View>
       ) : null}
 
-      {/* ── Value of the user's holdings ───────────────────────────────────── */}
+      {/* ── Value of the user's holdings ───────────────────────────────────────
+          Shown whenever there IS a balance and a price, for every asset alike.
+          It used to be hidden when the balance was zero, which read as a bug:
+          DCNT showed the row and BOLT didn't, for no reason a user could see. */}
       {holdingsUsd !== null && balance > 0 ? (
         <View style={{ gap: 2 }}>
           <T variant="caption" color={theme.muted}>
             Value of your {symbol}
           </T>
           <T weight="bold" style={{ fontSize: 22, lineHeight: 27 }}>
-            {formatUsdCompact(holdingsUsd)}
+            {formatHoldingsUsd(holdingsUsd)}
           </T>
         </View>
       ) : null}

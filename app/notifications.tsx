@@ -16,6 +16,7 @@ import { T } from "@/src/components/T";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { SPACING } from "@/src/theme/tokens";
 import { useNotificationFeed, type FeedItem } from "@/src/state/notificationsFeed";
+import { TokenLogo } from "@/src/components/TokenLogo";
 import { useAccounts } from "@/src/state/accounts";
 
 function timeAgo(ts: number) {
@@ -122,21 +123,45 @@ export default function NotificationsScreen() {
                   onPress={() => onOpenItem(item)}
                   style={({ pressed }) => ({
                     flexDirection: "row",
-                    alignItems: "flex-start",
+                    alignItems: "center",
                     gap: 12,
                     paddingVertical: SPACING.md,
                     opacity: pressed ? 0.65 : 1,
                   })}
                 >
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      marginTop: 7,
-                      backgroundColor: item.read ? "transparent" : theme.accent,
-                    }}
-                  />
+                  {/* The asset's own icon, so a list of alerts is scannable
+                      by token rather than by reading every line. symbol and
+                      logoURI are carried in `data` by every notification
+                      producer — the push server, the send flow and the
+                      balance watcher — so this needs no lookup and works
+                      identically for native ETN and any ERC-20. */}
+                  <View style={{ position: "relative" }}>
+                    <TokenLogo
+                      symbol={typeof item.data.symbol === "string" ? item.data.symbol : "?"}
+                      uri={typeof item.data.logoURI === "string" && item.data.logoURI ? item.data.logoURI : undefined}
+                      size={36}
+                    />
+
+                    {/* Unread marker moved onto the icon. It used to be a
+                        free-floating dot in its own column, which cost 20pt of
+                        width on every row to say one bit of information. */}
+                    {!item.read ? (
+                      <View
+                        style={{
+                          position: "absolute",
+                          top: -1,
+                          right: -1,
+                          width: 11,
+                          height: 11,
+                          borderRadius: 999,
+                          backgroundColor: theme.accent,
+                          borderWidth: 2,
+                          borderColor: theme.bg,
+                        }}
+                      />
+                    ) : null}
+                  </View>
+
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <T weight="semibold" numberOfLines={1}>
                       {item.title}

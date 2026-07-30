@@ -75,16 +75,53 @@ const FETCH_TIMEOUT_MS = 12_000;
  * then keep the close price only — the app draws a plain line, never candles.
  */
 export const RANGES = {
-  // ~96 points over 24h — enough for a smooth line, few enough to render
-  // cheaply on a phone.
-  // Refresh cadences are the main lever on total API spend, and they are set
-  // by how fast each line can actually change — not by how fresh we'd like it
-  // to look. A 1-year line redrawn every 30 minutes is 48 identical requests
-  // a day.
-  "1D": { timeframe: "minute", aggregate: 15, limit: 96, refreshMs: 30 * 60_000 },
-  "1W": { timeframe: "hour", aggregate: 4, limit: 42, refreshMs: 4 * 60 * 60_000 },
-  "1M": { timeframe: "hour", aggregate: 12, limit: 60, refreshMs: 12 * 60 * 60_000 },
-  "1Y": { timeframe: "day", aggregate: 1, limit: 365, refreshMs: 24 * 60 * 60_000 },
+  // `windowMs` is the real definition of each range; `limit` is only how many
+  // candles we ASK for.
+  //
+  // Those are different things, and conflating them was a bug. The upstream
+  // OHLCV endpoint returns the last N candles that EXIST, and a candle only
+  // exists where a trade happened. BOLT trades about six times a day, so
+  // asking for 96 fifteen-minute candles reached back TEN DAYS — and we
+  // labelled it "1D". The chart was drawn from a ten-day window while the
+  // headline "▲1.73% today" came from a genuine 24-hour figure, so the line
+  // could fall while the percentage rose. Both numbers were internally
+  // correct; they described different periods.
+  //
+  // Now every series is trimmed to `windowMs` after fetching. On a chain this
+  // quiet that sometimes leaves two or three points, or none — which is the
+  // honest answer, and the chart says "No trades in this period" rather than
+  // silently widening its own window to find some.
+  //
+  // `limit` is generous relative to the window so a busy period is fully
+  // covered; extra candles are simply trimmed away.
+  "1D": {
+    timeframe: "minute",
+    aggregate: 15,
+    limit: 200,
+    windowMs: 24 * 60 * 60_000,
+    refreshMs: 30 * 60_000,
+  },
+  "1W": {
+    timeframe: "hour",
+    aggregate: 4,
+    limit: 200,
+    windowMs: 7 * 24 * 60 * 60_000,
+    refreshMs: 4 * 60 * 60_000,
+  },
+  "1M": {
+    timeframe: "hour",
+    aggregate: 12,
+    limit: 200,
+    windowMs: 30 * 24 * 60 * 60_000,
+    refreshMs: 12 * 60 * 60_000,
+  },
+  "1Y": {
+    timeframe: "day",
+    aggregate: 1,
+    limit: 365,
+    windowMs: 365 * 24 * 60 * 60_000,
+    refreshMs: 24 * 60 * 60_000,
+  },
 } as const;
 
 export type Range = keyof typeof RANGES;
@@ -408,12 +445,27 @@ async function refreshPriceHistoryFor(pool: string, side: "base" | "quote", rang
 
   // Each entry is [timestamp, open, high, low, close, volume]; timestamps are
   // epoch SECONDS (not milliseconds). A line chart needs the close only.
-  const points = list
+  const all = list
     .map((row: unknown[]) => ({ t: num(row?.[0]), c: num(row?.[4]) }))
     .filter((p): p is { t: number; c: number } => p.t !== null && p.c !== null)
     .sort((a, b) => a.t - b.t);
 
-  if (points.length === 0) return false;
+  // Trim to the range's ACTUAL time window. Without this, a sparsely traded
+  // token's "1D" chart silently stretches back however far it needs to go to
+  // find `limit` candles — ten days, in BOLT's case.
+  const cutoffSec = Math.floor((Date.now() - spec.windowMs) / 1000);
+  const points = all.filter((p) => p.t >= cutoffSec);
+
+  if (points.length !== all.length) {
+    console.log(
+      `[market] ${pool} ${range}: trimmed ${all.length - points.length} point(s) older than the ${range} window ` +
+        `(${points.length} remain)`
+    );
+  }
+
+  // An empty result is a real answer — "nothing traded in this window" — and
+  // must be stored as such. Returning early would leave yesterday's wider
+  // series in place, which is exactly the mislabelling this fixes.
   replacePriceHistory(pool, range, points);
   return true;
 }
@@ -421,6 +473,17 @@ async function refreshPriceHistoryFor(pool: string, side: "base" | "quote", rang
 export async function refreshPriceHistory(force = false): Promise<void> {
   const mapped = listTokenPools();
   const now = Date.now();
+
+  // Native ETN first — it's the asset every user holds, so it's the one chart
+  // most likely to be looked at.
+  for (const range of RANGE_KEYS) {
+    const key = `${NATIVE_HISTORY_KEY}:${range}`;
+    const due = force || now - (lastHistoryRefresh.get(key) ?? 0) >= RANGES[range].refreshMs;
+    const empty = getPriceHistory(NATIVE_HISTORY_KEY, range).length === 0;
+    if (!due && !empty) continue;
+
+    if (await refreshNativeHistoryFor(range)) lastHistoryRefresh.set(key, now);
+  }
 
   for (const m of mapped) {
     for (const range of RANGE_KEYS) {
@@ -451,6 +514,93 @@ export async function refreshPriceHistory(force = false): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let etnUsd: { usd: number; change24h: number | null; at: number } | null = null;
+
+/**
+ * Storage key for native ETN's price line.
+ *
+ * The history table is keyed by POOL address, but ETN has no pool of its own —
+ * it IS the thing every pool is priced against. So it gets a sentinel key.
+ * Not a real address, and deliberately not address-shaped, so it can never
+ * collide with one.
+ */
+export const NATIVE_HISTORY_KEY = "native:etn";
+
+/** How many days of CoinGecko history each range needs. */
+const NATIVE_RANGE_DAYS: Record<Range, number> = {
+  "1D": 1,
+  "1W": 7,
+  "1M": 30,
+  "1Y": 365,
+};
+
+/**
+ * Native ETN price history, from CoinGecko rather than a DEX pool.
+ *
+ * ETN is a genuinely listed coin with real exchange volume, so its history is
+ * a market fact rather than one pool's opinion — and there is no ETN/ETN pool
+ * to read anyway. This is the same source as the spot ETN price above, so the
+ * chart and the headline stay consistent, exactly as they do for tokens.
+ */
+async function refreshNativeHistoryFor(range: Range): Promise<boolean> {
+  const days = NATIVE_RANGE_DAYS[range];
+  const url = new URL(`https://api.coingecko.com/api/v3/coins/${config.coingeckoEtnId}/market_chart`);
+  url.searchParams.set("vs_currency", "usd");
+  url.searchParams.set("days", String(days));
+  if (config.marketApiKey) url.searchParams.set("x_cg_demo_api_key", config.marketApiKey);
+
+  const allowed = await acquireCall(PROVIDER);
+  if (!allowed) return false;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url.toString(), { signal: controller.signal, headers: { accept: "application/json" } });
+    if (res.status === 429) {
+      recordRateLimited(PROVIDER, 0);
+      upstreamFailures++;
+      return false;
+    }
+    if (!res.ok) {
+      console.error(`[market] coingecko market_chart ${range} → HTTP ${res.status}`);
+      upstreamFailures++;
+      return false;
+    }
+
+    const json: any = await res.json();
+    // `prices` is [[ms, price], ...] — MILLISECONDS here, unlike the OHLCV
+    // endpoint's seconds. Converted on the way in so everything downstream
+    // speaks one unit.
+    const raw: unknown[] = Array.isArray(json?.prices) ? json.prices : [];
+    const points = raw
+      .map((row: any) => {
+        const ms = num(row?.[0]);
+        const price = num(row?.[1]);
+        if (ms === null || price === null) return null;
+        // → seconds, matching the OHLCV path so everything downstream (SQLite,
+        // the API, the chart) speaks exactly one time unit.
+        return { t: Math.floor(ms / 1000), c: price };
+      })
+      .filter((p): p is { t: number; c: number } => p !== null && p.t > 0)
+      .sort((a, b) => a.t - b.t);
+
+    if (points.length === 0) return false;
+
+    // CoinGecko returns 5-minute granularity for 1 day, which is ~288 points.
+    // Thin to roughly 120 so the phone draws a smooth line without shipping
+    // three times the data it can resolve on a 350pt-wide chart.
+    const stride = Math.max(1, Math.ceil(points.length / 120));
+    const thinned = points.filter((_, i) => i % stride === 0 || i === points.length - 1);
+
+    replacePriceHistory(NATIVE_HISTORY_KEY, range, thinned);
+    return true;
+  } catch (err) {
+    console.error(`[market] coingecko market_chart ${range} failed:`, err instanceof Error ? err.message : err);
+    upstreamFailures++;
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function refreshEtnPrice(): Promise<void> {
   const url = new URL("https://api.coingecko.com/api/v3/simple/price");
@@ -528,6 +678,18 @@ export function marketSnapshot() {
 }
 
 export function priceSeries(token: string, range: Range) {
+  // "native" is how the app asks for ETN itself, which has no contract address
+  // and no pool — see NATIVE_HISTORY_KEY.
+  if (token.toLowerCase() === "native") {
+    return {
+      token: "native",
+      pool: NATIVE_HISTORY_KEY,
+      poolLabel: "ETN / USD",
+      range,
+      points: getPriceHistory(NATIVE_HISTORY_KEY, range),
+    };
+  }
+
   const mapping = getTokenPool(token.toLowerCase());
   if (!mapping) return null;
   return {

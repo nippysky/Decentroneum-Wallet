@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { config } from "./config";
 import { getLastProcessedBlock, getPushTokensForAddress, markSent, setLastProcessedBlock, wasAlreadySent } from "./db";
 import { sendPushNotifications, PushMessage } from "./expoPush";
-import { getTrackedTokens } from "./tokenRegistry";
+import { getTrackedToken, getTrackedTokens } from "./tokenRegistry";
 
 // ---------------------------------------------------------------------------
 // Live path: one persistent WebSocket connection to the RPC node. ethers'
@@ -105,6 +105,15 @@ function hasAnyRegistration(address: string): boolean {
   return getPushTokensForAddress(address).length > 0;
 }
 
+/**
+ * ETN's logo, carried in the notification payload for the in-app list.
+ *
+ * Native ETN isn't in the token registry — it has no contract address — so its
+ * logo is named here rather than looked up. Same asset the app uses for the
+ * native row, so the notification list and the wallet agree.
+ */
+const NATIVE_LOGO_URI = "https://s2.coinmarketcap.com/static/img/coins/200x200/2137.png";
+
 function handleNativeTransfer(txHash: string, to: string, value: bigint, outbox: PushMessage[]): void {
   if (!hasAnyRegistration(to)) return;
   if (wasAlreadySent(txHash, to)) return;
@@ -114,7 +123,15 @@ function handleNativeTransfer(txHash: string, to: string, value: bigint, outbox:
       to: pushToken,
       title: "ETN received",
       body: `+${amount} ETN`,
-      data: { txHash, kind: "native", address: to },
+      // symbol/logoURI ride along so the in-app notification list can render
+      // the right icon without re-deriving anything from the address.
+      data: {
+        txHash,
+        kind: "native",
+        address: to,
+        symbol: "ETN",
+        logoURI: NATIVE_LOGO_URI,
+      },
     });
   }
   markSent(txHash, to);
@@ -135,17 +152,30 @@ function handleTokenLog(log: ethers.Log, outbox: PushMessage[]): void {
   if (!hasAnyRegistration(to)) return;
   if (wasAlreadySent(log.transactionHash, to, log.index)) return;
 
-  // NOTE: decimals/symbol hardcoded to DCNT's known values here for
-  // simplicity. For a multi-token registry, fetch decimals/symbol per
-  // `log.address` from https://decentroneum.com/api/token-list.json
-  // (cached) instead of hardcoding.
-  const amount = prettyAmount(value, 18);
+  // Symbol, decimals and logo come from the published registry — the same
+  // source the wallet displays from, so a notification can never disagree with
+  // the app about what a token is called or how it's denominated.
+  //
+  // This used to hardcode 18 decimals and say "+5 tokens" with no symbol at
+  // all, which on a multi-token registry is both uninformative and, for any
+  // token that isn't 18-decimal, numerically wrong.
+  const meta = getTrackedToken(log.address);
+  const amount = prettyAmount(value, meta?.decimals ?? 18);
+  const symbol = meta?.symbol || "tokens";
+
   for (const pushToken of getPushTokensForAddress(to)) {
     outbox.push({
       to: pushToken,
-      title: "Token received",
-      body: `+${amount} tokens`,
-      data: { txHash: log.transactionHash, kind: "token", token: log.address, address: to },
+      title: symbol === "tokens" ? "Token received" : `${symbol} received`,
+      body: `+${amount} ${symbol}`,
+      data: {
+        txHash: log.transactionHash,
+        kind: "token",
+        token: log.address,
+        address: to,
+        symbol: meta?.symbol ?? "",
+        logoURI: meta?.logoURI ?? "",
+      },
     });
   }
   markSent(log.transactionHash, to, log.index);

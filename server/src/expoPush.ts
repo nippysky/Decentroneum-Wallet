@@ -10,6 +10,32 @@ export type PushMessage = {
   data?: Record<string, unknown>;
 };
 
+// ─── Why there is no image field here ───────────────────────────────────────
+//
+// Expo's push API offers exactly two icon/image options, and neither gives a
+// small per-token badge on the notification row:
+//
+//   `richContent.image`  Android only. Renders as bigPicture — a full-width
+//                        banner image in the expanded notification. Wildly out
+//                        of proportion for "you received 5 DCNT".
+//
+//   `icon`               Android only, and it takes the NAME OF A BUNDLED
+//                        DRAWABLE RESOURCE, not a URL. So it can only be an
+//                        image compiled into the app at build time — which
+//                        defeats the entire point of a remote token registry
+//                        where tokens are listed without an app release.
+//
+// iOS has no equivalent field at all: the banner always shows the app icon.
+// A small thumbnail IS possible there, but only via a Notification Service
+// Extension attaching a UNNotificationAttachment at delivery time.
+//
+// So the OS banner shows the Decent icon and says "DCNT received / +5.00
+// DCNT" — the asset is named in the text, which is the part people actually
+// read. The token's logo appears in the in-app notification list, where we
+// control the rendering completely. `data.logoURI` carries it there, and is
+// also exactly what an iOS Notification Service Extension would read if one
+// is added later.
+
 type ExpoTicket =
   | { status: "ok"; id: string }
   | { status: "error"; message: string; details?: { error?: string } };
@@ -37,7 +63,12 @@ export async function sendPushNotifications(messages: PushMessage[]): Promise<vo
           "Accept-Encoding": "gzip, deflate",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(batch.map((m) => ({ ...m, sound: "default" }))),
+        body: JSON.stringify(
+          batch.map((m) => ({
+            ...m,
+            sound: "default",
+          }))
+        ),
       });
 
       if (!res.ok) {

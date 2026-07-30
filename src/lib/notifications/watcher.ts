@@ -17,6 +17,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
+
+/** Same asset the home screen and token detail use for native ETN. */
+const ETN_LOGO_URI = "https://s2.coinmarketcap.com/static/img/coins/200x200/2137.png";
 import { notifyLocal } from "./local";
 import type { Account } from "@/src/lib/crypto/vault";
 import type { ListedToken } from "@/src/lib/tokens/registry";
@@ -78,7 +81,8 @@ export function startTxWatcher(opts: {
               await notifyLocal({
                 title: `${ELECTRONEUM.symbol} received`,
                 body: `${acc.label}: +${prettyAmount(delta, ELECTRONEUM.decimals)} ${ELECTRONEUM.symbol}`,
-                data: { accountId: acc.id, kind: "native", route: "/(tabs)/wallet" },
+                data: { accountId: acc.id, kind: "native", route: "/(tabs)/wallet", symbol: ELECTRONEUM.symbol },
+                logoURI: ETN_LOGO_URI,
               });
             }
           }
@@ -100,7 +104,14 @@ export function startTxWatcher(opts: {
                 await notifyLocal({
                   title: `${t.symbol} received`,
                   body: `${acc.label}: +${prettyAmount(delta, t.decimals)} ${t.symbol}`,
-                  data: { accountId: acc.id, kind: "token", token: t.address, route: "/(tabs)/wallet" },
+                  data: {
+                    accountId: acc.id,
+                    kind: "token",
+                    token: t.address,
+                    route: "/(tabs)/wallet",
+                    symbol: t.symbol,
+                  },
+                  logoURI: t.logoURI,
                 });
               }
             }

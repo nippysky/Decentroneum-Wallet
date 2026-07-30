@@ -363,14 +363,14 @@ export function getPriceHistory(pool: string, timeframe: string): { t: number; c
 // Token registry cache — the cold-start fallback for tokenRegistry.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function saveRegistryCache(tokens: string[]): void {
+export function saveRegistryCache(tokens: unknown[]): void {
   db.prepare(
     `INSERT INTO registry_cache (id, tokens, fetched_at) VALUES (1, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET tokens = excluded.tokens, fetched_at = excluded.fetched_at`
   ).run(JSON.stringify(tokens));
 }
 
-export function loadRegistryCache(): { tokens: string[]; fetchedAt: string } | null {
+export function loadRegistryCache(): { tokens: unknown[]; fetchedAt: string } | null {
   const row = db.prepare("SELECT tokens, fetched_at FROM registry_cache WHERE id = 1").get() as
     | { tokens: string; fetched_at: string }
     | undefined;
@@ -378,7 +378,10 @@ export function loadRegistryCache(): { tokens: string[]; fetchedAt: string } | n
   try {
     const tokens = JSON.parse(row.tokens);
     if (!Array.isArray(tokens) || tokens.length === 0) return null;
-    return { tokens: tokens.filter((t) => typeof t === "string"), fetchedAt: row.fetched_at };
+    // Shape isn't validated here — normalize() in tokenRegistry.ts is the one
+    // place that decides what a valid entry looks like, and it tolerates both
+    // the old bare-address form and the current object form.
+    return { tokens, fetchedAt: row.fetched_at };
   } catch {
     return null;
   }

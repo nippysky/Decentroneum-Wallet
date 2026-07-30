@@ -20,6 +20,7 @@ import { Skeleton } from "@/src/components/Skeleton";
 import { ReceiveModal } from "@/src/components/ReceiveModal";
 import { CircleAction } from "@/src/components/CircleAction";
 import { MarketPanel } from "@/src/features/market/MarketPanel";
+import { Tabs } from "@/src/components/Tabs";
 import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -90,6 +91,12 @@ export default function TokenDetailScreen() {
   const [activityLoading, setActivityLoading] = useState(true);
 
   const [receiveOpen, setReceiveOpen] = useState(false);
+
+  // Details and Activity are tabbed rather than stacked. Stacked, reaching the
+  // transaction list meant scrolling past the price, the chart, the range
+  // picker, the holdings value and six stat rows — so the part people most
+  // often come here for was the hardest to reach.
+  const [tab, setTab] = useState<"Activity" | "Details">("Activity");
 
   // Defensive fallback: read on-chain metadata directly if this address ever
   // isn't in the curated registry (shouldn't normally happen — Home only
@@ -246,12 +253,12 @@ export default function TokenDetailScreen() {
 
           <View style={{ height: SPACING.xxl }} />
 
-          {/* Token details */}
-          <View style={{ gap: SPACING.sm }}>
-            <T weight="bold" style={{ fontSize: 18 }}>
-              Details
-            </T>
+          <Tabs tabs={["Activity", "Details"] as const} value={tab} onChange={setTab} />
 
+          <View style={{ height: SPACING.lg }} />
+
+          {/* ── Details ─────────────────────────────────────────────────────── */}
+          <View style={{ gap: SPACING.sm, display: tab === "Details" ? "flex" : "none" }}>
             <View style={{ borderRadius: RADIUS.xl, backgroundColor: theme.surface2, overflow: "hidden" }}>
               <View style={{ padding: SPACING.md, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <T color={theme.muted}>Name</T>
@@ -336,14 +343,11 @@ export default function TokenDetailScreen() {
             </View>
           </View>
 
-          <View style={{ height: SPACING.xxl }} />
-
-          {/* Activity */}
-          <View style={{ gap: SPACING.sm }}>
-            <T weight="bold" style={{ fontSize: 18 }}>
-              Activity
-            </T>
-
+          {/* ── Activity ────────────────────────────────────────────────────
+              `display: none` rather than unmounting: switching tabs must not
+              re-trigger the activity fetch or lose scroll position, and the
+              list is small enough that keeping it mounted costs nothing. */}
+          <View style={{ gap: SPACING.sm, display: tab === "Activity" ? "flex" : "none" }}>
             {activityLoading ? (
               <View style={{ gap: SPACING.md }}>
                 {[0, 1, 2].map((i) => (

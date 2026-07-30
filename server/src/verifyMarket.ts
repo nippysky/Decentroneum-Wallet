@@ -23,6 +23,7 @@ import {
   priceSeries,
   marketSnapshot,
   RANGE_KEYS,
+  RANGES,
   refreshPriceHistory,
   refreshEtnPrice,
   refreshPrices,
@@ -166,37 +167,68 @@ async function main() {
   console.log("\n4. Backfilling the price line for every range…");
   await refreshPriceHistory(true);
 
-  for (const p of pools) {
+  // Native ETN is checked alongside the tokens: different upstream
+  // (CoinGecko, not GeckoTerminal), different timestamp unit on the wire
+  // (milliseconds, not seconds), so it needs the same assertions.
+  const subjects = [
+    ...pools.map((p) => ({ token: p.token, label: p.token.slice(0, 10) + "…" })),
+    { token: "native", label: "native ETN" },
+  ];
+
+  for (const p of subjects) {
     for (const range of RANGE_KEYS) {
       const series = priceSeries(p.token, range);
       const n = series?.points.length ?? 0;
       const first = series?.points[0];
       const last = series?.points[n - 1];
       console.log(
-        `     ${p.token.slice(0, 10)}… ${range.padEnd(3)} ${String(n).padStart(4)} points` +
+        `     ${p.label.padEnd(12)} ${range.padEnd(3)} ${String(n).padStart(4)} points` +
           (first && last
             ? `  ${new Date(first.t * 1000).toISOString().slice(0, 16)} → ${new Date(last.t * 1000).toISOString().slice(0, 16)}  close ${fmt(last.c)}`
             : "")
       );
-      check(`  ${p.token.slice(0, 10)}… ${range} has points`, n > 0, `${n}`);
+      // NOT a hard failure. An empty series is a real, correct answer on this
+      // chain — DCNT genuinely traded $0 in the last 24 hours, so its 1D
+      // window contains nothing. Failing the build on that would be demanding
+      // the data lie.
+      warn(`  ${p.label} ${range} has points`, n > 0, n === 0 ? "no trades in this window" : `${n}`);
 
-      // Timestamps must be epoch SECONDS, not milliseconds. If a future API
-      // change flips this, dates land in the year 56000 and the chart's x-axis
-      // silently collapses to a single pixel.
       if (first) {
+        // Timestamps must be epoch SECONDS, not milliseconds. If a future API
+        // change flips this, dates land in the year 56000 and the chart's
+        // x-axis silently collapses to a single pixel.
         const year = new Date(first.t * 1000).getUTCFullYear();
-        check(`  ${p.token.slice(0, 10)}… ${range} timestamps are epoch seconds`, year > 2015 && year < 2100, `parsed year ${year}`);
+        check(`  ${p.label} ${range} timestamps are epoch seconds`, year > 2015 && year < 2100, `parsed year ${year}`);
+
+        // THE check this whole fix exists for. Every point must fall inside
+        // the window its label claims. Before the fix, "1D" for BOLT spanned
+        // ten days because the upstream endpoint returns the last N candles
+        // that EXIST, not the last N time buckets — and on a token trading six
+        // times a day those are wildly different things.
+        const spec = RANGES[range];
+        const oldestAllowedSec = Math.floor((Date.now() - spec.windowMs) / 1000);
+        const spanHours = last ? (last.t - first.t) / 3600 : 0;
+        const windowHours = spec.windowMs / 3_600_000;
+
+        check(
+          `  ${p.label} ${range} data is inside its ${range} window`,
+          first.t >= oldestAllowedSec,
+          `oldest point is ${spanHours.toFixed(1)}h back, window is ${windowHours.toFixed(0)}h`
+        );
       }
 
-      // The last point should match the live price. This is the check that
-      // proves the headline number and the line come from the same pool —
-      // the whole reason for anchoring on one canonical pool.
-      if (last) {
-        const live = snap.tokens.find((t) => t.address === p.token)?.priceUsd ?? null;
-        if (live !== null && live > 0 && range === "1D") {
+      // The last point should match the live price — proves the headline
+      // number and the line come from the same pool, which is the whole
+      // reason for resolving one canonical pool per token.
+      if (last && range === "1D") {
+        const live =
+          p.token === "native"
+            ? snap.native?.priceUsd ?? null
+            : snap.tokens.find((t) => t.address === p.token)?.priceUsd ?? null;
+        if (live !== null && live > 0) {
           const drift = Math.abs(last.c - live) / live;
           check(
-            `  ${p.token.slice(0, 10)}… 1D last point matches live price within 10%`,
+            `  ${p.label} 1D last point matches live price within 10%`,
             drift < 0.1,
             `point ${fmt(last.c)} vs live ${fmt(live)} (${(drift * 100).toFixed(2)}%)`
           );

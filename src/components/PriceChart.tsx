@@ -92,9 +92,10 @@ export function PriceChart({ points, width, height = 168, loading = false }: Pri
     );
   }
 
-  // Green when the range ended at or above where it started, red when below,
-  // brand green when perfectly flat (no trend to colour).
-  const stroke = geometry.flat || geometry.rising ? theme.accent : theme.danger;
+  // MARKET colours, not brand ones — green up, red down, by convention.
+  // A flat line has no direction, so it stays neutral rather than claiming a
+  // rise that didn't happen.
+  const stroke = geometry.flat ? theme.muted : geometry.rising ? theme.positive : theme.negative;
 
   return (
     <View style={{ width, height }}>

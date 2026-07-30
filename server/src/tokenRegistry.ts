@@ -29,31 +29,60 @@ const REGISTRY_URL = process.env.TOKEN_REGISTRY_URL ?? "https://decentroneum.com
 const REFRESH_INTERVAL_MS = Number(process.env.TOKEN_REGISTRY_REFRESH_MS ?? 30 * 60 * 1000); // 30m
 const FETCH_TIMEOUT_MS = 10_000;
 
-/** Lowercased contract addresses currently being watched. */
-let tracked: string[] = [];
+/**
+ * Full metadata for every watched token, keyed by lowercased address.
+ *
+ * This used to be a bare address list, and the cost of that showed up in the
+ * notifications: the watcher knew a transfer had happened but not what token
+ * it was, so every ERC-20 alert read "Token received / +5 tokens" with
+ * decimals hardcoded to 18. Carrying the registry's own symbol/decimals/logo
+ * through means a notification can say "DCNT received / +5.00 DCNT" and show
+ * the right icon, with no second source of truth to drift.
+ */
+export type TrackedToken = {
+  /** Lowercased contract address. */
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoURI?: string;
+};
+
+let tracked: TrackedToken[] = [];
 let lastGoodAt: number | null = null;
 let usingCache = false;
 let timer: NodeJS.Timeout | null = null;
 
-function normalize(list: unknown): string[] {
+function normalize(list: unknown): TrackedToken[] {
   if (!Array.isArray(list)) return [];
-  const out = new Set<string>();
+
+  const out = new Map<string, TrackedToken>();
   for (const raw of list) {
-    const addr =
-      typeof raw === "string"
-        ? raw
-        : raw && typeof raw === "object" && typeof (raw as any).address === "string"
-        ? (raw as any).address
-        : null;
-    if (!addr) continue;
-    // Accept anything address-shaped; the RPC will reject genuine nonsense.
-    if (!/^0x[0-9a-fA-F]{40}$/.test(addr.trim())) continue;
-    out.add(addr.trim().toLowerCase());
+    // A bare string is still accepted so an older/simpler registry payload
+    // keeps working — it just yields a token with no symbol, which the
+    // notification code falls back gracefully for.
+    const entry = typeof raw === "string" ? { address: raw } : raw;
+    if (!entry || typeof entry !== "object") continue;
+
+    const address = typeof (entry as any).address === "string" ? (entry as any).address.trim() : null;
+    if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) continue;
+
+    const decimals = Number((entry as any).decimals);
+
+    out.set(address.toLowerCase(), {
+      address: address.toLowerCase(),
+      symbol: typeof (entry as any).symbol === "string" ? (entry as any).symbol : "",
+      name: typeof (entry as any).name === "string" ? (entry as any).name : "",
+      // 18 is the ERC-20 convention and the right guess when the registry
+      // omits it — but it is a GUESS, so it must never override a real value.
+      decimals: Number.isFinite(decimals) && decimals >= 0 && decimals <= 36 ? decimals : 18,
+      logoURI: typeof (entry as any).logoURI === "string" ? (entry as any).logoURI : undefined,
+    });
   }
-  return Array.from(out);
+  return Array.from(out.values());
 }
 
-async function fetchRegistry(): Promise<string[] | null> {
+async function fetchRegistry(): Promise<TrackedToken[] | null> {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -103,7 +132,7 @@ async function refresh(): Promise<void> {
   }
 
   const changed =
-    next.length !== tracked.length || next.some((a) => !tracked.includes(a));
+    next.length !== tracked.length || next.some((n) => !tracked.some((t) => t.address === n.address));
 
   tracked = next;
   lastGoodAt = Date.now();
@@ -113,7 +142,10 @@ async function refresh(): Promise<void> {
   saveRegistryCache(next);
 
   if (changed) {
-    console.log(`[registry] tracking ${tracked.length} token(s): ${tracked.join(", ")}`);
+    console.log(
+      `[registry] tracking ${tracked.length} token(s): ` +
+        tracked.map((t) => `${t.symbol || "?"} (${t.address})`).join(", ")
+    );
   }
 }
 
@@ -137,11 +169,18 @@ export function stopTokenRegistry(): void {
 }
 
 /**
- * The live list. Call this per use rather than caching a reference — it
- * changes when a new token is listed, without a redeploy or restart.
+ * Lowercased addresses only — what the log filters and the market resolver
+ * need. Call per use rather than caching a reference: the list changes when a
+ * token is listed, with no redeploy or restart.
  */
 export function getTrackedTokens(): string[] {
-  return tracked;
+  return tracked.map((t) => t.address);
+}
+
+/** Full metadata for one token, or null if it isn't in the registry. */
+export function getTrackedToken(address: string): TrackedToken | null {
+  const key = address.toLowerCase();
+  return tracked.find((t) => t.address === key) ?? null;
 }
 
 /** Exposed on /health so you can confirm sync without SSH-ing in. */
@@ -149,7 +188,7 @@ export function tokenRegistryStatus() {
   return {
     source: REGISTRY_URL,
     count: tracked.length,
-    tokens: tracked,
+    tokens: tracked.map((t) => `${t.symbol || "?"} ${t.address}`),
     lastGoodAt: lastGoodAt ? new Date(lastGoodAt).toISOString() : null,
     // True when serving the SQLite cache because the registry is unreachable.
     usingCache,

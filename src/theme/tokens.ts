@@ -25,6 +25,22 @@ export type Theme = {
   card: string;
   primary: string;
   accent: string;
+  /**
+   * MARKET colours — up and down. Deliberately NOT brand colours.
+   *
+   * The brand is two inverting colours and nothing else, but a price chart is
+   * the one place that rule has to bend: green-up / red-down is a convention
+   * users read pre-attentively, and overriding it with a house palette makes
+   * people misread their own portfolio. In light mode the brand accent is Onyx
+   * (#131418) — a near-black — so a "rising" line drawn in it looked like a
+   * plain black scribble with no meaning at all.
+   *
+   * Also used for genuine success/failure states (a valid address, a complete
+   * recovery phrase, an incoming transfer) — same semantics, same reason: a
+   * green tick that renders near-black communicates nothing.
+   *
+   * Everything that is not up/down or pass/fail stays on brand.
+   */
   positive: string;
   negative: string;
   success: string;
@@ -66,9 +82,14 @@ export const light: Theme = {
   card: "#FFFFFF",
   primary: "#060807",
   accent: LIGHT_ACCENT,
-  positive: LIGHT_ACCENT,
+  // Green-600 / Red-600. Chosen for contrast on the cream field rather than
+  // for brand fit — these are read, not admired.
+  positive: "#16A34A",
   negative: "#DC2626",
-  success: LIGHT_ACCENT,
+  // Matches `positive` — success was previously the Onyx accent, which made
+  // every confirmation tick render as a black mark that read as decoration
+  // rather than approval.
+  success: "#16A34A",
   danger: "#DC2626",
   warning: "#D97706",
   overlay: "rgba(11,18,32,0.45)",
@@ -87,6 +108,9 @@ export const dark: Theme = {
   card: "#0B0F0C",
   primary: "#4DEE54",
   accent: "#4DEE54",
+  // On the dark field the neon already reads as the conventional "up" green,
+  // so brand and convention happen to agree here and there's no reason to
+  // introduce a second green.
   positive: "#4DEE54",
   negative: "#F87171",
   success: "#4DEE54",

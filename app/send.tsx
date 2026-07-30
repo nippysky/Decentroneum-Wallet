@@ -305,7 +305,8 @@ export default function SendScreen() {
         notifyLocal({
           title: `${ELECTRONEUM.symbol} sent`,
           body: `${trimZeros(amount)} ${ELECTRONEUM.symbol} sent successfully`,
-          data: { accountId, route: "/(tabs)/wallet", kind: "sent" },
+          data: { accountId, route: "/(tabs)/wallet", kind: "sent", symbol: ELECTRONEUM.symbol },
+          logoURI: ETN_LOGO_URI,
         }).catch(() => {});
         return;
       }
@@ -322,7 +323,8 @@ export default function SendScreen() {
       notifyLocal({
         title: `${asset.token.symbol} sent`,
         body: `${trimZeros(amount)} ${asset.token.symbol} sent successfully`,
-        data: { accountId, route: "/(tabs)/wallet", kind: "sent" },
+        data: { accountId, route: "/(tabs)/wallet", kind: "sent", symbol: asset.token.symbol },
+        logoURI: asset.token.logoURI,
       }).catch(() => {});
     } catch (e: any) {
       setErr(e?.message ?? "Failed to send");

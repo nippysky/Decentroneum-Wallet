@@ -11,18 +11,21 @@ import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
 import { TokenLogo } from "@/src/components/TokenLogo";
+import { ChangeIndicator } from "@/src/components/ChangeIndicator";
 import { ReceiveModal } from "@/src/components/ReceiveModal";
 import { CircleAction } from "@/src/components/CircleAction";
 import { Skeleton } from "@/src/components/Skeleton";
-import { SPACING } from "@/src/theme/tokens";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
 import { useNotificationFeed } from "@/src/state/notificationsFeed";
 
+import { ethers } from "ethers";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
 import { useTokens } from "@/src/state/tokens";
+import { useMarket } from "@/src/state/market";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { formatNative2dpFromWei, formatUnits2dp, shortAddr } from "@/src/lib/format";
 import { useAutoRefresh } from "@/src/hooks/useAutoRefresh";
@@ -30,6 +33,14 @@ import { AccountSwitcher } from "@/src/components/AccountSwitcher";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 
 /* ---------------------------------- Wallet ---------------------------------- */
+
+/** Compact fiat, with a floor so a real holding never renders as "$0". */
+function formatFiat(v: number): string {
+  if (v > 0 && v < 0.01) return "< $0.01";
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 export default function Wallet() {
   const { theme } = useTheme();
@@ -81,6 +92,40 @@ export default function Wallet() {
   const showToast = (msg: string) => toast.info(msg);
 
   const nativeBalanceText = useMemo(() => formatNative2dpFromWei(balanceWei), [balanceWei]);
+
+  // Numeric balance for the fiat line. The display string above carries
+  // thousands separators, so it parses as NaN — derive from the raw wei.
+  const nativeBalanceNumber = useMemo(() => {
+    try {
+      const n = Number(ethers.formatUnits(balanceWei, ELECTRONEUM.decimals));
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  }, [balanceWei]);
+
+  const etnPriceUsd = useMarket((m) => m.native?.priceUsd ?? null);
+  const etnChange24h = useMarket((m) => m.native?.change24h ?? null);
+  const tokenPrices = useMarket((m) => m.tokens);
+
+  /**
+   * A token row's holdings value, or null when we have no price for it.
+   *
+   * Returns null rather than "$0" for an unpriced token: the row falls back to
+   * showing the symbol, which is honest, where "$0.00" would claim we know the
+   * balance is worthless when in fact we know nothing.
+   */
+  const tokenFiat = (addr: string, raw: bigint, decimals: number): string | null => {
+    const price = tokenPrices[addr.toLowerCase()]?.priceUsd ?? null;
+    if (price === null) return null;
+    try {
+      const amount = Number(ethers.formatUnits(raw, decimals));
+      if (!Number.isFinite(amount) || amount === 0) return null;
+      return formatFiat(amount * price);
+    } catch {
+      return null;
+    }
+  };
 
   // `silent` = a background auto-refresh. It must not toggle the skeleton
   // flags, or the UI would flash placeholders every polling tick even
@@ -288,11 +333,31 @@ export default function Wallet() {
 
           {/* Balance hero — quiet, no card chrome, the number does the talking.
               Tappable straight into the native ETN detail page, same as any
-              token row below. */}
-          <Pressable hitSlop={6} onPress={() => router.push("/token/native")} style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1 })}>
-            <T variant="caption" color={theme.muted}>
-              Balance
-            </T>
+              token row below.
+              
+              The chevron and the pressed background are the whole point: this
+              was already tappable, but nothing on screen said so, so nobody
+              tapped it. An affordance that only the developer knows about is
+              not a feature. */}
+          <Pressable
+            hitSlop={6}
+            onPress={() => router.push("/token/native")}
+            accessibilityRole="button"
+            accessibilityLabel="View ETN details"
+            style={({ pressed }) => ({
+              marginHorizontal: -SPACING.sm,
+              paddingHorizontal: SPACING.sm,
+              paddingVertical: SPACING.xs,
+              borderRadius: RADIUS.lg,
+              backgroundColor: pressed ? theme.surface2 : "transparent",
+            })}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <T variant="caption" color={theme.muted}>
+                Balance
+              </T>
+              <Ionicons name="chevron-forward" size={13} color={theme.muted} />
+            </View>
 
             <View style={{ height: SPACING.xs }} />
 
@@ -321,6 +386,23 @@ export default function Wallet() {
                 </Animated.View>
               )}
             </View>
+
+            {/* What the balance is actually worth, plus which way ETN moved
+                today. Two small lines that turn a raw token count into
+                something a person can act on. Market colours, not brand ones
+                — green up / red down is read faster than it is thought
+                about. */}
+            {etnPriceUsd !== null ? (
+              <>
+                <View style={{ height: SPACING.xs }} />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <T weight="semibold" color={theme.muted} style={{ fontSize: 15 }}>
+                    {formatFiat(nativeBalanceNumber * etnPriceUsd)}
+                  </T>
+                  <ChangeIndicator change={etnChange24h} size={13} />
+                </View>
+              </>
+            ) : null}
 
             {err ? (
               <>
@@ -376,6 +458,13 @@ export default function Wallet() {
           <View>
             <T weight="bold" style={{ fontSize: 18 }}>Tokens</T>
 
+            {/* One line, said once. The chevrons imply it, but "tappable" is
+                worth stating outright for the screen that hides the price
+                chart behind it — an undiscovered feature is no feature. */}
+            <T variant="caption" color={theme.muted}>
+              Tap any asset for its price and history.
+            </T>
+
             <View style={{ height: SPACING.sm }} />
 
             {tokens.length === 0 ? (
@@ -409,27 +498,34 @@ export default function Wallet() {
                         </View>
                       </View>
 
-                      <View style={{ alignItems: "flex-end" }}>
-                        {showTokenSkeleton ? (
-                          <Animated.View exiting={FadeOut.duration(180)}>
-                            <Skeleton width={84} height={16} radius={10} />
-                          </Animated.View>
-                        ) : (
-                          <Animated.View entering={FadeIn.duration(260)}>
-                            <T weight="semibold">{balText}</T>
-                          </Animated.View>
-                        )}
-                        {showTokenSkeleton ? (
-                          <Animated.View exiting={FadeOut.duration(180)}>
-                            <Skeleton width={34} height={12} radius={8} style={{ marginTop: 6 }} />
-                          </Animated.View>
-                        ) : (
-                          <Animated.View entering={FadeIn.duration(260)}>
-                            <T variant="caption" color={theme.muted}>
-                              {t.symbol}
-                            </T>
-                          </Animated.View>
-                        )}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <View style={{ alignItems: "flex-end" }}>
+                          {showTokenSkeleton ? (
+                            <Animated.View exiting={FadeOut.duration(180)}>
+                              <Skeleton width={84} height={16} radius={10} />
+                            </Animated.View>
+                          ) : (
+                            <Animated.View entering={FadeIn.duration(260)}>
+                              <T weight="semibold">{balText}</T>
+                            </Animated.View>
+                          )}
+                          {showTokenSkeleton ? (
+                            <Animated.View exiting={FadeOut.duration(180)}>
+                              <Skeleton width={34} height={12} radius={8} style={{ marginTop: 6 }} />
+                            </Animated.View>
+                          ) : (
+                            <Animated.View entering={FadeIn.duration(260)}>
+                              <T variant="caption" color={theme.muted}>
+                                {tokenFiat(t.address, raw, t.decimals) ?? t.symbol}
+                              </T>
+                            </Animated.View>
+                          )}
+                        </View>
+
+                        {/* Says "there is more behind this row". Without it the
+                            rows read as a static list, and the detail screen
+                            with the chart on it goes undiscovered. */}
+                        <Ionicons name="chevron-forward" size={15} color={theme.muted} />
                       </View>
                     </Pressable>
                   );
