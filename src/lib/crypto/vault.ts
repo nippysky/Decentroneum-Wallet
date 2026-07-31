@@ -350,6 +350,27 @@ export async function listAccounts(): Promise<Account[]> {
   return vault ? toPublicAccounts(vault) : [];
 }
 
+/**
+ * The account the user last selected, as persisted.
+ *
+ * Read without unlocking, because the launch-time hydrate runs before the
+ * passcode screen and would otherwise default to the first account — which is
+ * how "I was on Account 10, reopened the app, and I'm on Account 1" happens.
+ *
+ * Falls back to the first VISIBLE account if the stored id no longer resolves
+ * (its phrase was removed, or it was hidden), so this can never return an id
+ * the accounts list won't show.
+ */
+export async function getActiveAccountId(): Promise<string | null> {
+  const vault = await loadVault();
+  if (!vault) return null;
+
+  const stored = vault.accounts.find((a) => a.id === vault.activeAccountId && !a.hidden);
+  if (stored) return stored.id;
+
+  return vault.accounts.find((a) => !a.hidden)?.id ?? null;
+}
+
 /** Public phrase metadata only (no phrases) — safe to read without unlocking. */
 export async function listSeeds(): Promise<SeedInfo[]> {
   const vault = await loadVault();

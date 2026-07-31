@@ -29,6 +29,7 @@ import { useAccounts } from "@/src/state/accounts";
 import { useTokens } from "@/src/state/tokens";
 
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
+import { NATIVE_ASSET } from "@/src/lib/tokens/native";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { readErc20Metadata } from "@/src/lib/tokens/registry";
@@ -37,7 +38,6 @@ import { openExplorerAddress, openExplorerToken, openExplorerTx } from "@/src/li
 import { formatNative2dpFromWei, formatUnits2dp, shortAddr } from "@/src/lib/format";
 import { toast } from "@/src/state/toast";
 
-const ETN_LOGO_URI = "https://s2.coinmarketcap.com/static/img/coins/200x200/2137.png";
 
 function timeAgo(ts: number) {
   if (!ts) return "";
@@ -80,7 +80,7 @@ export default function TokenDetailScreen() {
   );
 
   const [meta, setMeta] = useState<{ symbol: string; name: string; decimals: number; logoURI?: string } | null>(
-    isNative ? { symbol: ELECTRONEUM.symbol, name: "Electroneum", decimals: ELECTRONEUM.decimals } : listedToken ?? null
+    isNative ? { ...NATIVE_ASSET } : listedToken ?? null
   );
   const [metaLoading, setMetaLoading] = useState(!isNative && !listedToken);
 
@@ -156,7 +156,7 @@ export default function TokenDetailScreen() {
   const decimals = meta?.decimals ?? 18;
   const symbol = meta?.symbol ?? "—";
   const name = meta?.name ?? "—";
-  const logoURI = isNative ? ETN_LOGO_URI : meta?.logoURI;
+  const logoURI = meta?.logoURI;
 
   const balanceText = isNative ? formatNative2dpFromWei(balanceRaw) : formatUnits2dp(balanceRaw, decimals);
 
@@ -197,24 +197,40 @@ export default function TokenDetailScreen() {
 
           <View style={{ flex: 1, minWidth: 0 }}>
             <T weight="bold" style={{ fontSize: 18 }} numberOfLines={1}>
-              {symbol !== "—" ? symbol : "Token"}
+              {name !== "—" ? name : symbol !== "—" ? symbol : "Token"}
             </T>
           </View>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: SPACING.xxl }}>
           <View style={{ alignItems: "center", paddingTop: SPACING.lg, gap: SPACING.sm }}>
+            {/* Bigger now that nothing boxes it in — on a page about one
+                asset, its mark should carry the top of the screen. */}
             {metaLoading ? (
-              <Skeleton width={56} height={56} radius={999} />
+              <Skeleton width={64} height={64} radius={999} />
             ) : (
-              <TokenLogo symbol={symbol} uri={logoURI} size={56} />
+              <TokenLogo symbol={symbol} uri={logoURI} native={isNative} size={64} />
             )}
 
             {showBalanceSkeleton ? (
               <Skeleton width={160} height={38} radius={12} style={{ marginTop: SPACING.sm }} />
             ) : (
               <Animated.View entering={FadeIn.duration(220)} exiting={FadeOut.duration(120)}>
-                <T weight="bold" style={{ fontSize: 34, lineHeight: 40, letterSpacing: -1 }}>
+                {/* The EXACT balance, with commas — this is the screen people
+                    open when they want the real number, so it is not
+                    abbreviated the way the home-screen row is.
+                    
+                    adjustsFontSizeToFit shrinks a very large figure to fit on
+                    one line instead of clipping it. A truncated balance reads
+                    as a different quantity, which is the one failure mode a
+                    balance must never have. */}
+                <T
+                  weight="bold"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.55}
+                  style={{ fontSize: 34, lineHeight: 40, letterSpacing: -1, textAlign: "center" }}
+                >
                   {balanceText} {symbol !== "—" ? symbol : ""}
                 </T>
               </Animated.View>

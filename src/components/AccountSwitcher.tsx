@@ -26,7 +26,7 @@
 // account gets a fixed expanded width based on its label length. Slightly
 // less elegant than auto-layout, but entirely predictable — and it lets the
 // label cross-fade cleanly instead of reflowing mid-flight.
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, ScrollView, View } from "react-native";
 import { hapticSelect } from "@/src/lib/haptics";
 
@@ -152,6 +152,9 @@ function AccountChip({
   );
 }
 
+const GAP = 8;
+const EDGE_PAD = 4;
+
 export function AccountSwitcher({
   accounts,
   activeId,
@@ -161,6 +164,11 @@ export function AccountSwitcher({
   activeId: string | null;
   onSwitch: (account: SwitchableAccount) => void;
 }) {
+  const scrollRef = useRef<ScrollView>(null);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  /** First scroll should jump, not glide in from 0 on mount. */
+  const hasScrolledRef = useRef(false);
+
   const handlePress = useCallback(
     (a: SwitchableAccount, active: boolean) => {
       if (active) return;
@@ -170,14 +178,72 @@ export function AccountSwitcher({
     [onSwitch]
   );
 
+  const activeIndex = accounts.findIndex((a) => a.id === activeId);
+
+  /**
+   * Where the active chip sits, and how wide it is.
+   *
+   * Computed rather than measured. Every width in this row is already known
+   * ahead of time — collapsed chips are exactly CHIP wide and the expanded one
+   * is expandedWidthFor(label) — which is the whole reason the widths are
+   * driven explicitly (see the note at the top of this file). Measuring via
+   * onLayout would mean waiting a frame for a number we can derive now, and
+   * would land mid-animation while the chip is still growing.
+   */
+  const geometry = useMemo(() => {
+    let offset = EDGE_PAD;
+    let activeOffset = 0;
+    let activeWidth = CHIP;
+
+    accounts.forEach((a, i) => {
+      const width = a.id === activeId ? expandedWidthFor(a.label) : CHIP;
+      if (i === activeIndex) {
+        activeOffset = offset;
+        activeWidth = width;
+      }
+      offset += width + GAP;
+    });
+
+    // Drop the trailing gap, add the far edge padding.
+    const contentWidth = Math.max(0, offset - GAP) + EDGE_PAD;
+    return { activeOffset, activeWidth, contentWidth };
+  }, [accounts, activeId, activeIndex]);
+
+  /**
+   * Keep the active chip fully on screen.
+   *
+   * Centred when there's room on both sides, otherwise flush against whichever
+   * end it's near — the clamp is what guarantees "fully visible" rather than
+   * "centred but half off the end". Without this, selecting Account 10 left the
+   * row parked at the start and the user had to scroll to find out which
+   * account they were even looking at.
+   */
+  useEffect(() => {
+    if (activeIndex < 0 || viewportWidth <= 0) return;
+
+    const { activeOffset, activeWidth, contentWidth } = geometry;
+    const centred = activeOffset - (viewportWidth - activeWidth) / 2;
+    const maxScroll = Math.max(0, contentWidth - viewportWidth);
+    const x = Math.max(0, Math.min(centred, maxScroll));
+
+    scrollRef.current?.scrollTo({ x, animated: hasScrolledRef.current });
+    hasScrolledRef.current = true;
+  }, [activeIndex, viewportWidth, geometry]);
+
   // One account has nothing to switch between — a switcher would be chrome.
   if (accounts.length <= 1) return null;
 
   return (
     <ScrollView
+      ref={scrollRef}
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ gap: 8, paddingRight: 4, alignItems: "center" }}
+      onLayout={(e) => setViewportWidth(e.nativeEvent.layout.width)}
+      contentContainerStyle={{
+        gap: GAP,
+        paddingHorizontal: EDGE_PAD,
+        alignItems: "center",
+      }}
     >
       {accounts.map((a, index) => {
         const active = a.id === activeId;

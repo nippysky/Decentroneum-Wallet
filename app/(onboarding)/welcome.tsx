@@ -30,7 +30,6 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { Screen } from "@/src/components/Screen";
 import { Button } from "@/src/components/Button";
 import { T } from "@/src/components/T";
-import { WordMark } from "@/src/components/WordMark";
 import { ONBOARDING_ILLUSTRATIONS } from "@/src/components/illustrations/OnboardingIllustrations";
 import { openInfoPage } from "@/src/lib/chain/openExplorer";
 import { SCREEN_PADDING, SPACING } from "@/src/theme/tokens";
@@ -162,9 +161,6 @@ export default function Welcome() {
         }}
       >
         <View style={{ height: insets.top + SPACING.lg }} />
-
-        {/* Brand mark — small, top-left, then it gets out of the way. */}
-        <WordMark size={17} />
 
         {/* Illustration holds the middle of the screen and does not move
             between slides; only its content swaps. */}

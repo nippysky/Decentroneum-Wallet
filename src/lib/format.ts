@@ -94,3 +94,60 @@ export function formatAmountDisplay(value: string | number, maxDp = 2): string {
   const grouped = groupInt(intRaw || "0");
   return `${negative ? "-" : ""}${maxDp > 0 ? `${grouped}.${frac}` : grouped}`;
 }
+
+/**
+ * A token balance sized to fit a list row.
+ *
+ * Commas keep normal balances readable — "12,345.67" is instantly legible in
+ * a way "12345.67" is not. But comma-grouping alone doesn't scale: a token
+ * with a trillion supply renders "1,000,000,000,000.00", twenty characters
+ * that will either clip mid-number or shove the rest of the row off the card.
+ * A clipped number is worse than a rounded one, because "1,000,000,00…" reads
+ * as a different quantity entirely.
+ *
+ * So: exact and comma-grouped below a million, abbreviated above it. The
+ * exact figure is always one tap away on the asset's own screen, which is the
+ * right place for precision.
+ *
+ *   999999.5   → "999,999.50"
+ *   1000000    → "1M"
+ *   1250000    → "1.25M"
+ *   3400000000 → "3.4B"
+ */
+export function formatTokenAmountCompact(amount: number): string {
+  if (!Number.isFinite(amount)) return "0.00";
+  if (amount < 0) return `-${formatTokenAmountCompact(-amount)}`;
+
+  // A real but tiny holding must not render as "0.00" — that says you own
+  // nothing when you own something.
+  if (amount > 0 && amount < 0.01) return "< 0.01";
+
+  // Below a million, exact and comma-grouped. Predictable beats clever: a
+  // balance of 999,999.50 is shown as 999,999.50, not rounded up to "1M".
+  if (amount < 1e6) {
+    return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Largest unit first.
+  const units: [number, string][] = [
+    [1e12, "T"],
+    [1e9, "B"],
+    [1e6, "M"],
+  ];
+
+  for (const [threshold, suffix] of units) {
+    if (amount >= threshold) {
+      // Two significant-ish decimals, then trimmed: 1.00M reads as noise,
+      // 1.25M carries information.
+      return `${trimZeros((amount / threshold).toFixed(2))}${suffix}`;
+    }
+
+    // Rounding can cross a unit boundary: 999,999,999 is below 1e9, so the
+    // naive path drops it into the "M" bucket where it rounds to "1000M" —
+    // wrong-looking, and longer than an abbreviation is meant to be. If it
+    // rounds up INTO this unit, use this unit.
+    if (Number((amount / threshold).toFixed(2)) >= 1) return `1${suffix}`;
+  }
+
+  return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

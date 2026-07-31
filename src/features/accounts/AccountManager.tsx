@@ -26,6 +26,7 @@ import { hapticSelect, hapticSuccess } from "@/src/lib/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { T } from "@/src/components/T";
+import { ToastHost } from "@/src/components/ToastHost";
 import { Button } from "@/src/components/Button";
 import { toast } from "@/src/state/toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -100,7 +101,15 @@ function SeedChip({ index, small }: { index: number; small?: boolean }) {
 // middle, which made a wallet action look like a cookie banner.
 function Backdrop({ children }: { children: React.ReactNode }) {
   const { theme } = useTheme();
-  return <View style={{ flex: 1, backgroundColor: theme.bg }}>{children}</View>;
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      {children}
+      {/* Every sheet in this file is a native Modal, i.e. its own window —
+          the root ToastHost renders behind it. Without this, "Account hidden"
+          and friends fire into a layer nobody can see. */}
+      <ToastHost />
+    </View>
+  );
 }
 
 function SheetShell({ children }: { children: React.ReactNode }) {
@@ -198,7 +207,6 @@ function ImportPhraseSheet({ visible, onClose }: { visible: boolean; onClose: ()
   const words = useMemo(() => mnemonic.trim().split(/\s+/).filter(Boolean), [mnemonic]);
   const complete = words.length === 12 || words.length === 24;
   const invalid = words.length > 12 && !complete;
-  const countLabel = words.length > 12 ? "24-word" : "12- or 24-word";
 
   const close = () => {
     setMnemonic("");
@@ -247,27 +255,10 @@ function ImportPhraseSheet({ visible, onClose }: { visible: boolean; onClose: ()
           <SheetHeader title="Add recovery phrase" onClose={close} />
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.md }}>
-            <View
-              style={{
-                flexDirection: "row",
-                gap: SPACING.sm,
-                padding: SPACING.md,
-                borderRadius: RADIUS.lg,
-                backgroundColor: theme.surface2,
-              }}
-            >
-              <Ionicons name="information-circle-outline" size={18} color={theme.muted} />
-              <T variant="caption" color={theme.muted} style={{ flex: 1 }}>
-                Type or paste your {countLabel} recovery phrase, with a single space between each
-                word. Order matters. We never send it anywhere — it&apos;s encrypted on this device
-                only. Its first account is added now; you can add the rest with “Add account”.
-              </T>
-            </View>
-
             <View style={{ gap: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <T variant="caption" color={theme.muted}>
-                  Recovery phrase
+                  Paste your 12 or 24 words
                 </T>
                 <Pressable
                   onPress={async () => {

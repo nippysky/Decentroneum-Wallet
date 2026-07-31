@@ -15,6 +15,7 @@ import {
   addSeed as vaultAddSeed,
   getBackupPhrase,
   getSeedPhrase,
+  getActiveAccountId,
   listAccounts,
   listSeeds,
   hideAccount as vaultHideAccount,
@@ -80,8 +81,15 @@ export const useAccounts = create<AccountsState>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const [accounts, seeds] = await Promise.all([listAccounts(), listSeeds()]);
-      set({ accounts, seeds, activeAccountId: accounts[0]?.id ?? null });
+      // The persisted selection, not accounts[0]. This runs at launch, before
+      // the passcode screen, so defaulting to the first account here is what
+      // made the switcher forget which account you were on between sessions.
+      const [accounts, seeds, activeAccountId] = await Promise.all([
+        listAccounts(),
+        listSeeds(),
+        getActiveAccountId(),
+      ]);
+      set({ accounts, seeds, activeAccountId: activeAccountId ?? accounts[0]?.id ?? null });
     } catch {
       set({ accounts: [], seeds: [], activeAccountId: null });
     }

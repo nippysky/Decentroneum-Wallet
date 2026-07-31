@@ -25,10 +25,12 @@ import { RADIUS, SPACING } from "@/src/theme/tokens";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
+import { seedColor, seedTag } from "@/src/features/accounts/seedVisuals";
 import { useTokens } from "@/src/state/tokens";
 import { getAccountSecret } from "@/src/lib/crypto/vault";
 
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
+import { NATIVE_ASSET } from "@/src/lib/tokens/native";
 import type { ListedToken } from "@/src/lib/tokens/registry";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
@@ -45,7 +47,6 @@ import {
 } from "@/src/lib/format";
 import { notifyLocal } from "@/src/lib/notifications/local";
 
-const ETN_LOGO_URI = "https://s2.coinmarketcap.com/static/img/coins/200x200/2137.png";
 const WEI_0_01 = 10n ** 16n;
 
 type Asset = { kind: "native" } | { kind: "token"; token: ListedToken };
@@ -82,11 +83,43 @@ export default function SendScreen() {
 
   // Your other accounts, as send targets. The active one is excluded — a
   // transfer to yourself just burns gas, and offering it invites the mistake.
+  // Hidden accounts are excluded too: they are not in the accounts list, so
+  // offering one here would be the only place in the app they appear.
   const allAccounts = useAccounts((s) => s.accounts);
+  const seeds = useAccounts((s) => s.seeds);
   const otherAccounts = useMemo(
-    () => allAccounts.filter((a) => a.id !== accountId),
+    () => allAccounts.filter((a) => a.id !== accountId && !a.hidden),
     [allAccounts, accountId]
   );
+
+  /**
+   * Flattened, phrase-grouped rows for the picker.
+   *
+   * A wallet can hold 10 phrases with 50 accounts each, so this feeds a
+   * FlatList rather than a mapped ScrollView — 500 mounted rows would stutter
+   * on open. Headers are inlined as rows so one virtualized list handles both.
+   */
+  const accountPickerRows = useMemo(() => {
+    type Row =
+      | { kind: "header"; id: string; label: string; index: number; count: number }
+      | { kind: "account"; id: string; account: (typeof otherAccounts)[number]; seedIndex: number };
+
+    const rows: Row[] = [];
+    const multiPhrase = seeds.length > 1;
+
+    seeds.forEach((seed, i) => {
+      const group = otherAccounts.filter((a) => a.seedId === seed.id);
+      if (group.length === 0) return;
+      // With one phrase there is nothing to distinguish, so the header would
+      // be a label on the only group there is.
+      if (multiPhrase) {
+        rows.push({ kind: "header", id: seed.id, label: seed.label, index: i, count: group.length });
+      }
+      group.forEach((account) => rows.push({ kind: "account", id: account.id, account, seedIndex: i }));
+    });
+
+    return rows;
+  }, [otherAccounts, seeds]);
   const [assetQuery, setAssetQuery] = useState("");
 
   const assetList = useMemo<Asset[]>(() => [{ kind: "native" }, ...tokens.map((t) => ({ kind: "token", token: t } as Asset))], [tokens]);
@@ -306,7 +339,6 @@ export default function SendScreen() {
           title: `${ELECTRONEUM.symbol} sent`,
           body: `${trimZeros(amount)} ${ELECTRONEUM.symbol} sent successfully`,
           data: { accountId, route: "/(tabs)/wallet", kind: "sent", symbol: ELECTRONEUM.symbol },
-          logoURI: ETN_LOGO_URI,
         }).catch(() => {});
         return;
       }
@@ -394,7 +426,7 @@ export default function SendScreen() {
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
                       {asset.kind === "native" ? (
-                        <TokenLogo symbol={ELECTRONEUM.symbol} uri={ETN_LOGO_URI} size={38} />
+                        <TokenLogo symbol={NATIVE_ASSET.symbol} native size={38} />
                       ) : (
                         <TokenLogo symbol={asset.token.symbol} uri={asset.token.logoURI} size={38} />
                       )}
@@ -646,7 +678,7 @@ export default function SendScreen() {
                 }}
               >
                 {asset.kind === "native" ? (
-                  <TokenLogo symbol={ELECTRONEUM.symbol} uri={ETN_LOGO_URI} size={56} />
+                  <TokenLogo symbol={NATIVE_ASSET.symbol} native size={56} />
                 ) : (
                   <TokenLogo symbol={asset.token.symbol} uri={asset.token.logoURI} size={56} />
                 )}
@@ -773,14 +805,41 @@ export default function SendScreen() {
               <View style={{ height: SPACING.md }} />
             </View>
 
-            <ScrollView
+            <FlatList
+              data={accountPickerRows}
+              keyExtractor={(row) => `${row.kind}:${row.id}`}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingBottom: Math.max(insets.bottom, SPACING.lg) }}
-            >
-              <View style={{ gap: SPACING.sm }}>
-                {otherAccounts.map((a) => (
-                  <Pressable hitSlop={6}
-                    key={a.id}
+              contentContainerStyle={{
+                paddingHorizontal: SPACING.lg,
+                paddingBottom: Math.max(insets.bottom, SPACING.lg),
+                gap: SPACING.sm,
+              }}
+              renderItem={({ item }) => {
+                if (item.kind === "header") {
+                  return (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 8,
+                        paddingTop: SPACING.sm,
+                        paddingHorizontal: 2,
+                      }}
+                    >
+                      <View
+                        style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: seedColor(item.index) }}
+                      />
+                      <T variant="caption" weight="semibold" color={theme.muted} numberOfLines={1}>
+                        {seedTag(item.index)} · {item.label}
+                      </T>
+                    </View>
+                  );
+                }
+
+                const a = item.account;
+                return (
+                  <Pressable
+                    hitSlop={6}
                     onPress={() => {
                       setTo(a.address);
                       setAccountPickerOpen(false);
@@ -803,6 +862,8 @@ export default function SendScreen() {
                         alignItems: "center",
                         justifyContent: "center",
                         backgroundColor: theme.bg,
+                        borderWidth: seeds.length > 1 ? 2 : 0,
+                        borderColor: seeds.length > 1 ? seedColor(item.seedIndex) : "transparent",
                       }}
                     >
                       <Ionicons name="wallet-outline" size={18} color={theme.text} />
@@ -817,9 +878,9 @@ export default function SendScreen() {
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={theme.muted} />
                   </Pressable>
-                ))}
-              </View>
-            </ScrollView>
+                );
+              }}
+            />
           </Animated.View>
         ) : null}
 
@@ -923,7 +984,7 @@ export default function SendScreen() {
                   >
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                       {item.kind === "native" ? (
-                        <TokenLogo symbol={ELECTRONEUM.symbol} uri={ETN_LOGO_URI} size={38} />
+                        <TokenLogo symbol={NATIVE_ASSET.symbol} native size={38} />
                       ) : (
                         <TokenLogo symbol={item.token.symbol} uri={item.token.logoURI} size={38} />
                       )}

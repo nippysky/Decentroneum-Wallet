@@ -12,13 +12,14 @@
 import "react-native-get-random-values"; // helps ethers on RN
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, View, Linking } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View, Linking } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isRecordableUrl } from "@/src/lib/browser/recents";
 import { ethers } from "ethers";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -131,6 +132,10 @@ async function writeRecents(items: RecentItem[]) {
 
 async function upsertRecent(url: string, title?: string) {
   const clean = stripDw(url);
+
+  // Search-result pages are transit, not destinations — see lib/browser/recents.
+  if (!isRecordableUrl(clean)) return;
+
   const items = await readRecents();
   const now = Date.now();
 
@@ -651,7 +656,14 @@ export default function WebScreen() {
   const activeAccount = useAccounts((s) => s.activeAccount());
   // Visible accounts only — a site should never be offered an account the
   // user has hidden from their own list.
-  const accounts = useAccounts((s) => s.accounts.filter((a) => !a.hidden));
+  //
+  // The filter MUST live outside the selector. Zustand compares the selector's
+  // return value by reference to decide whether to re-render; `.filter()` builds
+  // a new array every call, so an inline filter is never equal to itself and
+  // the component re-renders forever ("Maximum update depth exceeded"). Select
+  // the raw slice, then derive.
+  const allAccounts = useAccounts((s) => s.accounts);
+  const accounts = useMemo(() => allAccounts.filter((a) => !a.hidden), [allAccounts]);
   const address = activeAccount?.address ?? null;
   const accountId = activeAccount?.id ?? null;
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);

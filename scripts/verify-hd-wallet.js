@@ -528,6 +528,39 @@ async function main() {
     })()
   );
 
+  // ── 9. The selected account survives a restart ───────────────────────────
+  // Launch reads this BEFORE the passcode screen, so it must be readable
+  // without the vault key — and it must never point at an account the list
+  // won't show.
+  section("9. The active account persists across a restart");
+  resetStorage();
+  const pSeed = ethers.Wallet.createRandom().mnemonic.phrase;
+  await vault.initializeVault(PIN, { mnemonic: pSeed });
+  const pu = await vault.unlockVault(PIN);
+  const picks = [];
+  for (let i = 0; i < 4; i += 1) picks.push((await vault.addDerivedAccount(pu.key)).account);
+
+  const tenth = picks[3];
+  await vault.setActiveAccount(tenth.id);
+
+  ok(
+    "the choice is readable WITHOUT unlocking (what launch does)",
+    (await vault.getActiveAccountId()) === tenth.id
+  );
+  ok(
+    "...and unlocking agrees with it",
+    (await vault.unlockVault(PIN)).activeAccountId === tenth.id
+  );
+
+  // Hiding the selected account must not leave the launch path pointing at
+  // something the accounts list refuses to render.
+  await vault.hideAccount(tenth.id);
+  const afterHidden = await vault.getActiveAccountId();
+  ok(
+    "hiding the selected account falls back to a VISIBLE one",
+    !!afterHidden && (await vault.listAccounts()).find((a) => a.id === afterHidden)?.hidden === false
+  );
+
   // ── Result ────────────────────────────────────────────────────────────────
   console.log(`\n${failures === 0 ? "PASS" : "FAIL"} — ${checks - failures}/${checks} checks passed`);
   if (failures > 0) console.log("\nDo NOT import a funded phrase until this passes.");

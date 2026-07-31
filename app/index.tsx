@@ -18,9 +18,11 @@ export default function Index() {
         // Development builds may still hold a vault in a format nothing can
         // read. Clearing it BEFORE the hasWallet check is what keeps such a
         // device off an unlock screen it could never get past.
-        if (await purgeLegacyVaults()) {
-          console.warn("[vault] removed a development-era vault record — starting fresh");
-        }
+        //
+        // Deliberately silent: the user-visible result (landing on onboarding)
+        // already says everything, and a red console warning on every cold
+        // start just trains people to ignore warnings.
+        await purgeLegacyVaults();
 
         const exists = await hasWallet();
         router.replace(exists ? "/unlock" : "/welcome");

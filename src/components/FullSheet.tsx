@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { T } from "@/src/components/T";
+import { ToastHost } from "@/src/components/ToastHost";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { SCREEN_PADDING, SPACING } from "@/src/theme/tokens";
 import { hapticTap } from "@/src/lib/haptics";
@@ -124,6 +125,19 @@ export function FullSheet({
         ) : (
           <View style={{ height: Math.max(insets.bottom, SPACING.md) }} />
         )}
+
+        {/* A toast host INSIDE the sheet.
+            
+            A native Modal is its own window on both platforms — nothing in the
+            React tree below it can paint above it, no matter what zIndex says.
+            The root ToastHost therefore renders *behind* any open sheet, which
+            is why "Recovery phrase copied" appeared to do nothing.
+            
+            Both hosts read the same store, so whichever is on top shows the
+            same message; the one underneath is simply hidden by the sheet.
+            That keeps the toast API unchanged — callers still just call
+            toast.success() and never think about layering. */}
+        <ToastHost />
       </View>
     </Modal>
   );

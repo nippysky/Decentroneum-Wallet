@@ -25,15 +25,29 @@ import { useNotificationFeed } from "@/src/state/notificationsFeed";
 import { ethers } from "ethers";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
 import { useTokens } from "@/src/state/tokens";
+import { NATIVE_ASSET } from "@/src/lib/tokens/native";
 import { useMarket } from "@/src/state/market";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
-import { formatNative2dpFromWei, formatUnits2dp, shortAddr } from "@/src/lib/format";
+import { formatTokenAmountCompact, shortAddr } from "@/src/lib/format";
 import { useAutoRefresh } from "@/src/hooks/useAutoRefresh";
 import { AccountSwitcher } from "@/src/components/AccountSwitcher";
 import { seedColor } from "@/src/features/accounts/seedVisuals";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 
 /* ---------------------------------- Wallet ---------------------------------- */
+
+/**
+ * A unit PRICE, as opposed to a holding's value.
+ *
+ * Prices on this chain run from ~$0.00005 to ~$4000, so a fixed 2dp would
+ * render most tokens as "$0.00" — which reads as worthless rather than cheap.
+ * Significant digits instead, trailing zeros trimmed.
+ */
+function formatPrice(v: number): string {
+  if (v >= 1) return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (v >= 0.01) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
 
 /** Compact fiat, with a floor so a real holding never renders as "$0". */
 function formatFiat(v: number): string {
@@ -114,8 +128,6 @@ export default function Wallet() {
   // No local message/visible/timer state to keep in sync.
   const showToast = (msg: string) => toast.info(msg);
 
-  const nativeBalanceText = useMemo(() => formatNative2dpFromWei(balanceWei), [balanceWei]);
-
   // Numeric balance for the fiat line. The display string above carries
   // thousands separators, so it parses as NaN — derive from the raw wei.
   const nativeBalanceNumber = useMemo(() => {
@@ -132,23 +144,120 @@ export default function Wallet() {
   const tokenPrices = useMarket((m) => m.tokens);
 
   /**
-   * A token row's holdings value, or null when we have no price for it.
+   * Everything the user holds, as ONE list.
    *
-   * Returns null rather than "$0" for an unpriced token: the row falls back to
-   * showing the symbol, which is honest, where "$0.00" would claim we know the
-   * balance is worthless when in fact we know nothing.
+   * Native ETN is an asset like any other from the user's point of view — it
+   * has a balance, a price and a chart — so it sits in the same list instead
+   * of in a separate hero block. It is pinned first because it pays the fees
+   * for everything else, and DCNT second because it is this wallet's own
+   * token; after that, ordering is by what the holding is worth, so the
+   * biggest position is always at the top where it is looked for.
    */
-  const tokenFiat = (addr: string, raw: bigint, decimals: number): string | null => {
-    const price = tokenPrices[addr.toLowerCase()]?.priceUsd ?? null;
-    if (price === null) return null;
-    try {
-      const amount = Number(ethers.formatUnits(raw, decimals));
-      if (!Number.isFinite(amount) || amount === 0) return null;
-      return formatFiat(amount * price);
-    } catch {
-      return null;
+  const assets = useMemo(() => {
+    type Row = {
+      key: string;
+      route: string;
+      symbol: string;
+      name: string;
+      logoURI?: string;
+      isNative: boolean;
+      /** Display string, already sized to fit a row. */
+      balanceText: string;
+      /** The asset's unit price. Null when no market exists for it. */
+      priceUsd: number | null;
+      /** Null when we have no price — never guessed. */
+      valueUsd: number | null;
+      change24h: number | null;
+    };
+
+    const rows: Row[] = [
+      {
+        key: "native",
+        route: "/token/native",
+        symbol: NATIVE_ASSET.symbol,
+        name: NATIVE_ASSET.name,
+        isNative: true,
+        balanceText: formatTokenAmountCompact(nativeBalanceNumber),
+        priceUsd: etnPriceUsd,
+        valueUsd: etnPriceUsd === null ? null : nativeBalanceNumber * etnPriceUsd,
+        change24h: etnChange24h,
+      },
+    ];
+
+    for (const t of tokens) {
+      const raw = tokenBalances[t.address.toLowerCase()] ?? 0n;
+      const market = tokenPrices[t.address.toLowerCase()] ?? null;
+
+      let amount = 0;
+      try {
+        const n = Number(ethers.formatUnits(raw, t.decimals));
+        amount = Number.isFinite(n) ? n : 0;
+      } catch {
+        amount = 0;
+      }
+
+      rows.push({
+        key: t.address,
+        route: `/token/${t.address}`,
+        symbol: t.symbol,
+        name: t.name,
+        logoURI: t.logoURI,
+        isNative: false,
+        balanceText: formatTokenAmountCompact(amount),
+        priceUsd: market?.priceUsd ?? null,
+        valueUsd: market?.priceUsd == null ? null : amount * market.priceUsd,
+        change24h: market?.change24h ?? null,
+      });
     }
-  };
+
+    const rank = (r: Row) => (r.isNative ? 0 : r.symbol === "DCNT" ? 1 : 2);
+    return rows.sort((a, b) => {
+      const byRank = rank(a) - rank(b);
+      if (byRank !== 0) return byRank;
+      return (b.valueUsd ?? 0) - (a.valueUsd ?? 0);
+    });
+  }, [tokens, tokenBalances, tokenPrices, nativeBalanceNumber, etnPriceUsd, etnChange24h]);
+
+  /**
+   * What everything is worth, and how that moved today.
+   *
+   * Only assets with a real price contribute. An unpriced token is left out of
+   * BOTH sides rather than counted as zero — counting it as zero would state
+   * that we know it is worthless, when what we actually know is nothing. The
+   * change is value-weighted, so a 40% move on a $2 holding doesn't swing a
+   * portfolio that is mostly ETN.
+   */
+  const portfolio = useMemo(() => {
+    let total = 0;
+    let weighted = 0;
+    let changeBase = 0;
+    let anyPriced = false;
+
+    for (const a of assets) {
+      if (a.priceUsd !== null) anyPriced = true;
+      if (a.valueUsd === null) continue;
+      total += a.valueUsd;
+      if (a.change24h !== null) {
+        weighted += a.valueUsd * a.change24h;
+        changeBase += a.valueUsd;
+      }
+    }
+
+    return {
+      total,
+      change24h: changeBase > 0 ? weighted / changeBase : null,
+      /**
+       * Whether we can state a figure at all.
+       *
+       * Keyed on having PRICES, not on the total being above zero. An empty
+       * wallet with a live price feed is worth exactly $0.00 and should say
+       * so — a dash there reads as "loading" or "broken" when the honest
+       * answer is a confident zero. The dash is reserved for the one case
+       * where we genuinely don't know: no price data at all.
+       */
+      priced: anyPriced,
+    };
+  }, [assets]);
 
   // `silent` = a background auto-refresh. It must not toggle the skeleton
   // flags, or the UI would flash placeholders every polling tick even
@@ -354,78 +463,39 @@ export default function Wallet() {
 
           <View style={{ height: SPACING.xl }} />
 
-          {/* Balance hero — quiet, no card chrome, the number does the talking.
-              Tappable straight into the native ETN detail page, same as any
-              token row below.
-              
-              The chevron and the pressed background are the whole point: this
-              was already tappable, but nothing on screen said so, so nobody
-              tapped it. An affordance that only the developer knows about is
-              not a feature. */}
-          <Pressable
-            hitSlop={6}
-            onPress={() => router.push("/token/native")}
-            accessibilityRole="button"
-            accessibilityLabel="View ETN details"
-            style={({ pressed }) => ({
-              marginHorizontal: -SPACING.sm,
-              paddingHorizontal: SPACING.sm,
-              paddingVertical: SPACING.xs,
-              borderRadius: RADIUS.lg,
-              backgroundColor: pressed ? theme.surface2 : "transparent",
-            })}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <T variant="caption" color={theme.muted}>
-                Balance
-              </T>
-              <Ionicons name="chevron-forward" size={13} color={theme.muted} />
-            </View>
+          {/* ── Portfolio hero ────────────────────────────────────────────────
+              One number: what everything in this account is worth. The old
+              hero showed the ETN balance, which answered a narrower question
+              and left the user to add up the rest themselves.
+
+              ETN hasn't lost its place — it's the first card in Assets below,
+              where it can show its balance, price move and chart like every
+              other holding. */}
+          <View>
+            <T variant="caption" color={theme.muted}>
+              Portfolio balance
+            </T>
 
             <View style={{ height: SPACING.xs }} />
 
-            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10 }}>
-              {showBalanceSkeleton ? (
-                <Animated.View exiting={FadeOut.duration(180)}>
-                  <Skeleton width={190} height={46} radius={14} />
-                </Animated.View>
-              ) : (
-                <Animated.View entering={FadeIn.duration(260)}>
+            {showBalanceSkeleton ? (
+              <Animated.View exiting={FadeOut.duration(180)}>
+                <Skeleton width={220} height={48} radius={14} />
+              </Animated.View>
+            ) : (
+              <Animated.View entering={FadeIn.duration(260)}>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                   <T weight="bold" style={{ fontSize: 44, lineHeight: 50, letterSpacing: -1.2 }}>
-                    {nativeBalanceText}
+                    {/* A dash, not "$0.00". Zero is a claim about value; with
+                        no price feed we simply don't know yet. */}
+                    {portfolio.priced ? formatFiat(portfolio.total) : "—"}
                   </T>
-                </Animated.View>
-              )}
-
-              {showBalanceSkeleton ? (
-                <Animated.View exiting={FadeOut.duration(180)}>
-                  <Skeleton width={38} height={16} radius={10} style={{ marginBottom: 8 }} />
-                </Animated.View>
-              ) : (
-                <Animated.View entering={FadeIn.duration(260)}>
-                  <T weight="semibold" color={theme.muted} style={{ fontSize: 16 }}>
-                    {ELECTRONEUM.symbol}
-                  </T>
-                </Animated.View>
-              )}
-            </View>
-
-            {/* What the balance is actually worth, plus which way ETN moved
-                today. Two small lines that turn a raw token count into
-                something a person can act on. Market colours, not brand ones
-                — green up / red down is read faster than it is thought
-                about. */}
-            {etnPriceUsd !== null ? (
-              <>
-                <View style={{ height: SPACING.xs }} />
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <T weight="semibold" color={theme.muted} style={{ fontSize: 15 }}>
-                    {formatFiat(nativeBalanceNumber * etnPriceUsd)}
-                  </T>
-                  <ChangeIndicator change={etnChange24h} size={13} />
+                  {portfolio.change24h !== null ? (
+                    <ChangeIndicator change={portfolio.change24h} suffix="today" size={14} />
+                  ) : null}
                 </View>
-              </>
-            ) : null}
+              </Animated.View>
+            )}
 
             {err ? (
               <>
@@ -436,8 +506,7 @@ export default function Wallet() {
               </>
             ) : null}
 
-            {/* Tap-to-copy address — quiet, no box, replaces the old boxed
-                "Account" row entirely. */}
+            {/* Tap-to-copy address — quiet, no box. */}
             <View style={{ height: SPACING.sm }} />
             <Pressable
               onPress={async () => {
@@ -446,14 +515,20 @@ export default function Wallet() {
                 showToast("Address copied");
               }}
               hitSlop={8}
-              style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1, alignSelf: "flex-start" })}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                opacity: pressed ? 0.6 : 1,
+                alignSelf: "flex-start",
+              })}
             >
               <T variant="caption" color={theme.muted}>
                 {address ? shortAddr(address) : "—"}
               </T>
               <Ionicons name="copy-outline" size={13} color={theme.muted} />
             </Pressable>
-          </Pressable>
+          </View>
 
           <View style={{ height: SPACING.xxl }} />
 
@@ -477,84 +552,117 @@ export default function Wallet() {
 
           <View style={{ height: SPACING.xxl }} />
 
-          {/* Tokens */}
+          {/* ── Assets ───────────────────────────────────────────────────────
+              Cards, not rows. Each holding gets its own surface with a
+              consistent three-column rhythm — logo, identity, value — so the
+              eye can scan straight down the right edge to compare positions
+              instead of re-reading each line. */}
           <View>
-            <T weight="bold" style={{ fontSize: 18 }}>Tokens</T>
+            <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
+              <T weight="bold" style={{ fontSize: 20, letterSpacing: -0.3 }}>
+                Assets
+              </T>
+              {/* Names the timeframe ONCE for the whole column, instead of
+                  repeating "24h" on every card or — worse — leaving a bare
+                  percentage whose period the reader has to guess. 24h is the
+                  convention every major wallet uses, so it is also what a
+                  crypto user assumes when nothing says otherwise; saying it
+                  out loud just removes the doubt. */}
+              <T variant="caption" color={theme.muted}>
+                24h
+              </T>
+            </View>
 
-            {/* One line, said once. The chevrons imply it, but "tappable" is
-                worth stating outright for the screen that hides the price
-                chart behind it — an undiscovered feature is no feature. */}
-            <T variant="caption" color={theme.muted}>
-              Tap any asset for its price and history.
-            </T>
+            <View style={{ height: SPACING.md }} />
 
-            <View style={{ height: SPACING.sm }} />
+            <View style={{ gap: SPACING.sm }}>
+              {assets.map((a) => {
+                // The native row and the token rows finish loading on
+                // different clocks, so each waits on its own skeleton flag
+                // rather than one shared "is anything loading" state.
+                const pending = a.isNative ? showBalanceSkeleton : showTokenSkeleton;
+
+                return (
+                  <Pressable
+                    key={a.key}
+                    hitSlop={4}
+                    onPress={() => router.push(a.route as never)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${a.symbol} details`}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: SPACING.md,
+                      padding: SPACING.md,
+                      borderRadius: RADIUS.xl,
+                      backgroundColor: theme.surface2,
+                      // Pressed state on the card itself, so the whole target
+                      // responds — not just the text inside it.
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <TokenLogo symbol={a.symbol} uri={a.logoURI} native={a.isNative} size={40} />
+
+                    {/* Left column: what the asset IS and how the market is
+                        treating it. Right column: what YOU hold. Splitting
+                        market data from personal data means neither has to be
+                        read twice to work out which is which. */}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T weight="semibold" numberOfLines={1}>
+                        {a.symbol}
+                      </T>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <T variant="caption" color={theme.muted} numberOfLines={1}>
+                          {a.priceUsd !== null ? formatPrice(a.priceUsd) : a.name}
+                        </T>
+                        {a.change24h !== null ? <ChangeIndicator change={a.change24h} size={11} /> : null}
+                      </View>
+                    </View>
+
+                    {/* flexShrink: 0 — the value column states a fact and must
+                        never be squeezed into an ellipsis. The left column
+                        carries flex: 1, so a long token NAME gives way instead,
+                        which is the right thing to lose. formatTokenAmountCompact
+                        bounds this column's width regardless. */}
+                    <View style={{ alignItems: "flex-end", flexShrink: 0 }}>
+                      {pending ? (
+                        <>
+                          <Animated.View exiting={FadeOut.duration(180)}>
+                            <Skeleton width={72} height={16} radius={10} />
+                          </Animated.View>
+                          <Animated.View exiting={FadeOut.duration(180)}>
+                            <Skeleton width={52} height={12} radius={8} style={{ marginTop: 6 }} />
+                          </Animated.View>
+                        </>
+                      ) : (
+                        <Animated.View entering={FadeIn.duration(260)} style={{ alignItems: "flex-end" }}>
+                          {/* Value leads. On a portfolio screen the question is
+                              "what is this worth", and the token count is the
+                              supporting detail — not the other way round. */}
+                          <T weight="semibold" numberOfLines={1}>
+                            {a.valueUsd !== null ? formatFiat(a.valueUsd) : "—"}
+                          </T>
+                          <T variant="caption" color={theme.muted} numberOfLines={1}>
+                            {a.balanceText} {a.symbol}
+                          </T>
+                        </Animated.View>
+                      )}
+                    </View>
+
+                    <Ionicons name="chevron-forward" size={15} color={theme.muted} />
+                  </Pressable>
+                );
+              })}
+            </View>
 
             {tokens.length === 0 ? (
-              <T color={theme.muted}>Vetted Electroneum tokens will appear here automatically as they&apos;re approved.</T>
-            ) : (
-              <View style={{ gap: 2 }}>
-                {tokens.map((t) => {
-                  const raw = tokenBalances[t.address.toLowerCase()] ?? 0n;
-                  const balText = formatUnits2dp(raw, t.decimals);
-
-                  return (
-                    <Pressable hitSlop={6}
-                      key={t.address}
-                      onPress={() => router.push(`/token/${t.address}`)}
-                      style={({ pressed }) => ({
-                        paddingVertical: SPACING.sm,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        opacity: pressed ? 0.7 : 1,
-                      })}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-                        <TokenLogo symbol={t.symbol} uri={t.logoURI} />
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <T weight="semibold">{t.symbol}</T>
-                          <T variant="caption" color={theme.muted} numberOfLines={1}>
-                            {t.name}
-                          </T>
-                        </View>
-                      </View>
-
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <View style={{ alignItems: "flex-end" }}>
-                          {showTokenSkeleton ? (
-                            <Animated.View exiting={FadeOut.duration(180)}>
-                              <Skeleton width={84} height={16} radius={10} />
-                            </Animated.View>
-                          ) : (
-                            <Animated.View entering={FadeIn.duration(260)}>
-                              <T weight="semibold">{balText}</T>
-                            </Animated.View>
-                          )}
-                          {showTokenSkeleton ? (
-                            <Animated.View exiting={FadeOut.duration(180)}>
-                              <Skeleton width={34} height={12} radius={8} style={{ marginTop: 6 }} />
-                            </Animated.View>
-                          ) : (
-                            <Animated.View entering={FadeIn.duration(260)}>
-                              <T variant="caption" color={theme.muted}>
-                                {tokenFiat(t.address, raw, t.decimals) ?? t.symbol}
-                              </T>
-                            </Animated.View>
-                          )}
-                        </View>
-
-                        {/* Says "there is more behind this row". Without it the
-                            rows read as a static list, and the detail screen
-                            with the chart on it goes undiscovered. */}
-                        <Ionicons name="chevron-forward" size={15} color={theme.muted} />
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
+              <>
+                <View style={{ height: SPACING.md }} />
+                <T variant="caption" color={theme.muted}>
+                  Vetted Electroneum tokens appear here automatically as they&apos;re approved.
+                </T>
+              </>
+            ) : null}
           </View>
         </View>
       </ScrollView>

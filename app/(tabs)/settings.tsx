@@ -118,43 +118,6 @@ function Row({
   );
 }
 
-function Sheet({
-  visible,
-  title,
-  message,
-  primaryText,
-  secondaryText,
-  onPrimary,
-  onSecondary,
-}: {
-  visible: boolean;
-  title: string;
-  message: string;
-  primaryText: string;
-  secondaryText: string;
-  onPrimary: () => void;
-  onSecondary: () => void;
-}) {
-  const { theme } = useTheme();
-  return (
-    <FullSheet
-      visible={visible}
-      title={title}
-      onClose={onSecondary}
-      footer={
-        <>
-          <Button title={primaryText} onPress={onPrimary} />
-          <TextButton title={secondaryText} onPress={onSecondary} />
-        </>
-      }
-    >
-      <T color={theme.muted} style={{ fontSize: 16, lineHeight: 23 }}>
-        {message}
-      </T>
-    </FullSheet>
-  );
-}
-
 function PasscodeSheet({
   visible,
   title,
@@ -200,18 +163,33 @@ function PasscodeSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin, visible, busy]);
 
-  // Reset whenever the sheet closes, so reopening never shows a stale error
-  // or half-typed passcode.
+  // Reset whenever the sheet closes, so reopening never shows a stale error,
+  // a half-typed passcode, or — the bug this fixes — a spinner that never
+  // stops.
+  //
+  // On SUCCESS, onConfirm hides this sheet. That flips `visible`, which is in
+  // the effect above's dependency list, so its cleanup runs and sets
+  // alive = false BEFORE the `finally` executes — meaning setBusy(false) was
+  // skipped and `busy` stayed true forever. Reopening then found busy === true,
+  // so the auto-submit bailed out, the keypad stayed disabled, and close() was
+  // blocked by its own busy guard: no way out but killing the app.
+  //
+  // Clearing busy here makes the closed state authoritative, whatever happened
+  // on the way out.
   useEffect(() => {
     if (visible) return;
     setPin("");
     setErr(null);
+    setBusy(false);
   }, [visible]);
 
+  // Deliberately NOT gated on `busy`. Blocking dismissal while a flag is set
+  // is how a stuck flag becomes a trapped user; the worst case here is an
+  // abandoned passcode check, which costs nothing.
   const close = () => {
-    if (busy) return;
     setPin("");
     setErr(null);
+    setBusy(false);
     onCancel();
   };
 
@@ -366,7 +344,6 @@ export default function Settings() {
 
   const [bioPendingOn, setBioPendingOn] = useState(false);
   const [bioLabel, setBioLabel] = useState<string>("Biometrics");
-  const [bioHelpOpen, setBioHelpOpen] = useState(false);
 
   // Recovery phrase flow
   const [viewPhrasePending, setViewPhrasePending] = useState(false);
@@ -448,7 +425,10 @@ export default function Settings() {
   const beginEnableBiometrics = async () => {
     const ok = await isBiometricsAvailable();
     if (!ok) {
-      setBioHelpOpen(true);
+      // Nothing to decide, so nothing to confirm. The old sheet offered a
+      // close icon, an "OK" and a "Cancel" that all did the same thing —
+      // three exits from a message that only reports device state.
+      toast.error(`${bioLabel} isn’t set up on this device`);
       setBioPendingOn(false);
       await setBiometricEnabled(false);
       return;
@@ -661,12 +641,6 @@ export default function Settings() {
             </T>
           </Pressable>
 
-          {/* Erase is all-or-nothing, and someone looking for "get rid of one
-              account" will find this row first and reasonably assume it's the
-              only option. Say where the smaller, reversible action lives. */}
-          <T variant="caption" color={theme.muted} style={{ textAlign: "center", marginTop: -SPACING.sm }}>
-            To hide a single account or remove one recovery phrase, open Accounts above.
-          </T>
         </View>
       </ScrollView>
 
@@ -844,17 +818,6 @@ export default function Settings() {
           await setBiometricEnabled(true);
           setBioPendingOn(false);
         }}
-      />
-
-      {/* Help sheet for simulator / device not enrolled */}
-      <Sheet
-        visible={bioHelpOpen}
-        title="Biometrics not available"
-        message={"Face ID / Touch ID isn’t set up on this device.\n\nOn iOS Simulator: Features → Face ID → Enrolled, then try again."}
-        primaryText="OK"
-        secondaryText="Cancel"
-        onPrimary={() => setBioHelpOpen(false)}
-        onSecondary={() => setBioHelpOpen(false)}
       />
 
       {/* Erase sheet — the one truly irreversible action in Settings, so it

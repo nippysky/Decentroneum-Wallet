@@ -139,6 +139,9 @@ export default function NotificationsScreen() {
                     <TokenLogo
                       symbol={typeof item.data.symbol === "string" ? item.data.symbol : "?"}
                       uri={typeof item.data.logoURI === "string" && item.data.logoURI ? item.data.logoURI : undefined}
+                      // Native alerts carry kind: "native" instead of a URL —
+                      // see lib/tokens/native.ts for why ETN's mark is bundled.
+                      native={item.data.kind === "native"}
                       size={36}
                     />
 

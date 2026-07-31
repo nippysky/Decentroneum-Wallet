@@ -17,9 +17,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getNativeBalanceWei } from "@/src/lib/chain/rpc";
 import { getErc20BalanceRaw } from "@/src/lib/chain/erc20";
 import { ELECTRONEUM } from "@/src/lib/chain/networks";
+import { NATIVE_ASSET } from "@/src/lib/tokens/native";
 
 /** Same asset the home screen and token detail use for native ETN. */
-const ETN_LOGO_URI = "https://s2.coinmarketcap.com/static/img/coins/200x200/2137.png";
 import { notifyLocal } from "./local";
 import type { Account } from "@/src/lib/crypto/vault";
 import type { ListedToken } from "@/src/lib/tokens/registry";
@@ -81,8 +81,10 @@ export function startTxWatcher(opts: {
               await notifyLocal({
                 title: `${ELECTRONEUM.symbol} received`,
                 body: `${acc.label}: +${prettyAmount(delta, ELECTRONEUM.decimals)} ${ELECTRONEUM.symbol}`,
-                data: { accountId: acc.id, kind: "native", route: "/(tabs)/wallet", symbol: ELECTRONEUM.symbol },
-                logoURI: ETN_LOGO_URI,
+                // No logoURI for native: `kind: "native"` is the signal, and
+                // the renderer draws the bundled mark. A URL here would be a
+                // second source of truth for the same picture.
+                data: { accountId: acc.id, kind: "native", route: "/(tabs)/wallet", symbol: NATIVE_ASSET.symbol },
               });
             }
           }
