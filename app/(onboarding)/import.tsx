@@ -221,7 +221,7 @@ export default function ImportWallet() {
             <Button title="Continue" loading={busy} disabled={!canContinue} onPress={onContinue} />
           </View>
 
-          <View style={{ height: Math.max(insets.bottom, SPACING.md) }} />
+          <View style={{ height: insets.bottom + SPACING.md }} />
         </View>
       </KeyboardAvoidingView>
     </Screen>

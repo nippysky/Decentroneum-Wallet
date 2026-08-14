@@ -221,14 +221,24 @@ export default function Welcome() {
 
         <View style={{ height: SPACING.xl }} />
 
-        {/* Actions — pinned to the bottom, fixed position on every slide. */}
-        <View style={{ gap: SPACING.sm, paddingBottom: Math.max(insets.bottom, SPACING.md) }}>
+        {/* Actions — pinned to the bottom, fixed position on every slide.
+        
+            Bottom padding is ADDITIVE (inset + spacing), not Math.max. The
+            inset only measures the home indicator / gesture bar itself; it
+            leaves zero clearance above it. Math.max meant the legal line sat
+            flush against the swipe-up area, where it both looked cramped and
+            competed with a system gesture. */}
+        <View style={{ gap: SPACING.sm, paddingBottom: insets.bottom + SPACING.lg }}>
           <Button title="Create a new wallet" onPress={() => router.push("/(onboarding)/create")} />
           <Button
             title="I already have a wallet"
             variant="ghost"
             onPress={() => router.push("/(onboarding)/import")}
           />
+
+          {/* Extra air above the legal line: it belongs with the buttons, but
+              not as tightly as the two buttons belong to each other. */}
+          <View style={{ height: SPACING.sm }} />
 
           {/* Legal consent at the point of sign-up, as both stores expect for
               a financial app. openInfoPage (not openInApp) because the full

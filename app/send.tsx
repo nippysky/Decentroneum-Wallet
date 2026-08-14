@@ -661,7 +661,7 @@ export default function SendScreen() {
               <View style={{ height: SPACING.xxl }} />
             </ScrollView>
 
-            <View style={{ paddingTop: SPACING.md, paddingBottom: Math.max(insets.bottom, SPACING.md), gap: SPACING.sm }}>
+            <View style={{ paddingTop: SPACING.md, paddingBottom: insets.bottom + SPACING.md, gap: SPACING.sm }}>
               <Button title="Review" disabled={!canProceed} onPress={() => setStep("review")} />
             </View>
           </Animated.View>
@@ -716,7 +716,7 @@ export default function SendScreen() {
               ) : null}
             </ScrollView>
 
-            <View style={{ paddingTop: SPACING.md, paddingBottom: Math.max(insets.bottom, SPACING.md), gap: SPACING.sm }}>
+            <View style={{ paddingTop: SPACING.md, paddingBottom: insets.bottom + SPACING.md, gap: SPACING.sm }}>
               {/* The one hold-gesture in this whole flow — right where it
                   matters: the moment this actually broadcasts on-chain. */}
               <HoldToConfirm

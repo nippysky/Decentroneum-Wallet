@@ -116,14 +116,16 @@ export function FullSheet({
             style={{
               paddingHorizontal: SCREEN_PADDING,
               paddingTop: SPACING.md,
-              paddingBottom: Math.max(insets.bottom, SPACING.md),
+              // Additive, not Math.max — the inset measures the home
+              // indicator itself and leaves no clearance above it.
+              paddingBottom: insets.bottom + SPACING.md,
               gap: SPACING.sm,
             }}
           >
             {footer}
           </View>
         ) : (
-          <View style={{ height: Math.max(insets.bottom, SPACING.md) }} />
+          <View style={{ height: insets.bottom + SPACING.md }} />
         )}
 
         {/* A toast host INSIDE the sheet.

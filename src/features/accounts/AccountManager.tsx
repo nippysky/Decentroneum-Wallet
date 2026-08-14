@@ -125,7 +125,9 @@ function SheetShell({ children }: { children: React.ReactNode }) {
         // Android gesture bar.
         paddingTop: insets.top + SPACING.md,
         paddingHorizontal: SCREEN_PADDING,
-        paddingBottom: Math.max(insets.bottom, SPACING.lg),
+        // Additive — see FullSheet. Math.max leaves the last control flush
+        // against the gesture bar.
+        paddingBottom: insets.bottom + SPACING.lg,
         gap: SPACING.md,
       }}
     >
