@@ -6,8 +6,7 @@ import { router, Stack } from "expo-router";
 import { ThemeProvider } from "@/src/theme/ThemeProvider";
 import * as SplashScreen from "expo-splash-screen";
 import * as Notifications from "expo-notifications";
-import * as Linking from "expo-linking";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import { useSession } from "@/src/state/session";
 import { useAccounts } from "@/src/state/accounts";
@@ -16,6 +15,7 @@ import { useNotifications } from "@/src/state/notifications";
 import { useNotificationFeed } from "@/src/state/notificationsFeed";
 import { useMarket } from "@/src/state/market";
 import { ToastHost } from "@/src/components/ToastHost";
+import { ThemedStatusBar } from "@/src/components/ThemedStatusBar";
 import {
   useFonts,
   Inter_400Regular,
@@ -40,7 +40,6 @@ export default function RootLayout() {
   const hydrate = useSession((s) => s.hydrate);
   const lock = useSession((s) => s.lock);
   const autoLockEnabled = useSession((s) => s.autoLockEnabled);
-  const isUnlocked = useSession((s) => s.isUnlocked);
   const hydrateAccounts = useAccounts((s) => s.hydrate);
   const hydrateTokens = useTokens((s) => s.hydrate);
   const hydrateNotifications = useNotifications((s) => s.hydrate);
@@ -137,6 +136,10 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
+      {/* Inside ThemeProvider so it reads the theme the app is actually
+          painting, not the OS preference. */}
+      <ThemedStatusBar />
+
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="send" options={{ presentation: "modal" }} />
         <Stack.Screen name="notifications" options={{ presentation: "modal" }} />

@@ -24,6 +24,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { T } from "@/src/components/T";
 import { ToastHost } from "@/src/components/ToastHost";
+import { ThemedStatusBar } from "@/src/components/ThemedStatusBar";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { SCREEN_PADDING, SPACING } from "@/src/theme/tokens";
 import { hapticTap } from "@/src/lib/haptics";
@@ -140,6 +141,12 @@ export function FullSheet({
             That keeps the toast API unchanged — callers still just call
             toast.success() and never think about layering. */}
         <ToastHost />
+
+        {/* Same reason as the toast above: a Modal is its own window, so the
+            root status bar style doesn't necessarily reach inside it. RN's
+            StatusBar is a stack, so this wins while the sheet is open and the
+            root one is restored when it closes. */}
+        <ThemedStatusBar />
       </View>
     </Modal>
   );

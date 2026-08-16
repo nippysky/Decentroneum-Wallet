@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { T } from "@/src/components/T";
 import { ToastHost } from "@/src/components/ToastHost";
+import { ThemedStatusBar } from "@/src/components/ThemedStatusBar";
 import { Button } from "@/src/components/Button";
 import { toast } from "@/src/state/toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -108,6 +109,8 @@ function Backdrop({ children }: { children: React.ReactNode }) {
           the root ToastHost renders behind it. Without this, "Account hidden"
           and friends fire into a layer nobody can see. */}
       <ToastHost />
+      {/* Modals are their own window — see FullSheet. */}
+      <ThemedStatusBar />
     </View>
   );
 }
