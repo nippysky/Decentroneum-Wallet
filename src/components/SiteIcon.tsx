@@ -7,13 +7,22 @@
 // showed a blank circle: s2 has no icon for that domain, so the <Image> loaded
 // a transparent placeholder and the row looked broken rather than unknown.
 //
-// Three sources, tried in order, then a letter:
+// Sources, tried in order, then a letter:
 //
-//   1. DuckDuckGo's icon service — best coverage for smaller domains, and it
+//   1. The site's OWN /favicon.ico. Privacy-first: this contacts only a host
+//      the user is already looking at in the list, so browsing a site tells
+//      no third party anything. Most sites serve it, so most rows never leave
+//      first-party territory.
+//   2. DuckDuckGo's icon service — good coverage for smaller domains, and it
 //      is already the browser's search provider, so no new third party.
-//   2. Google s2 — different crawl, catches what DDG misses.
-//   3. The domain's first letter on a tinted tile — always renders, always
+//   3. Google s2 — a different crawl, catches what DDG misses.
+//   4. The domain's first letter on a tinted tile — always renders, always
 //      distinguishes one row from the next.
+//
+// Steps 2-3 DO disclose the browsed domain to a third party. That is a real
+// privacy cost, disclosed in the store listings, and the reason step 1 exists
+// and goes first. If store review or policy ever makes even the fallback
+// unacceptable, deleting lines from `sourcesFor` is the whole change.
 //
 // Nothing is bundled: these are remote icons for arbitrary sites, so there is
 // nothing sensible to ship in the binary.
@@ -36,6 +45,7 @@ function hostOf(url: string): string {
 function sourcesFor(host: string): string[] {
   if (!host) return [];
   return [
+    `https://${host}/favicon.ico`,
     `https://icons.duckduckgo.com/ip3/${host}.ico`,
     `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`,
   ];
