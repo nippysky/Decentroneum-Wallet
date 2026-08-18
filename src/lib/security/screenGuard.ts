@@ -25,6 +25,7 @@
 // Because iOS can only tell us after the fact, screens that show a phrase
 // should ALSO pair this with a visible warning; see create.tsx.
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import * as ScreenCapture from "expo-screen-capture";
 
 /**
@@ -49,13 +50,27 @@ export function useScreenGuard(active: boolean = true) {
 }
 
 /**
- * Fires when iOS reports that a screenshot WAS taken (iOS only — Android
- * blocks the screenshot outright, so this never fires there). Use it to warn
- * the user that the image is now in their photo library.
+ * Fires when iOS reports that a screenshot WAS taken. Use it to warn the user
+ * that the image is now in their photo library.
+ *
+ * ─── iOS ONLY, and that is a deliberate narrowing ───────────────────────────
+ *
+ * On Android, FLAG_SECURE has already blocked the screenshot, so this listener
+ * could never fire there — it was dead code on that platform.
+ *
+ * It was also expensive dead code. expo-screen-capture's Android manifest
+ * declares READ_MEDIA_IMAGES (API 33) because detecting a screenshot means
+ * observing the media store. Play flags that as an undeclared photo/video
+ * permission and asks you to justify it — an awkward conversation for a wallet
+ * that has no photo feature at all.
+ *
+ * Skipping the subscription on Android, plus `blockedPermissions` in app.json,
+ * removes the permission from the merged manifest and loses nothing: Android
+ * users are strictly better protected, because the screenshot never happens.
  */
 export function useScreenshotWarning(onCaptured: () => void, active: boolean = true) {
   useEffect(() => {
-    if (!active) return;
+    if (!active || Platform.OS !== "ios") return;
     const sub = ScreenCapture.addScreenshotListener(() => onCaptured());
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
