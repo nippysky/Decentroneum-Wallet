@@ -13,7 +13,7 @@
     "userInterfaceStyle": "automatic",
     "primaryColor": "#4DEE54",
     "backgroundColor": "#060807",
-    "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem \u2014 send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
+    "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem — send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.decentroneum.wallet",
@@ -128,7 +128,8 @@
           "defaultChannel": "transactions",
           "enableBackgroundRemoteNotifications": false
         }
-      ]
+      ],
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,

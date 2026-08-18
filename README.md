@@ -114,6 +114,15 @@ of `expo-router`.** Do not remove them.
 its own copies transitively, so they are removable in principle. Not worth the
 build risk for a marginally smaller dependency tree.
 
+**Every build profile in `eas.json` must declare a `channel`.** `app.json` sets
+`updates.url`, but a binary only knows where to look for updates if its build
+profile named a channel. Without one, EAS Build warns *"a channel is not
+specified … EAS Update will be disabled for the build"* — and it means it: that
+binary can never receive an OTA update, and no `eas update` can retrofit it.
+The only fix is a new build. Channel names here match branch names
+(`production`, `preview`, `development`), so `eas update --branch production`
+reaches the production channel.
+
 **`platforms` is `["ios","android"]` in `app.json`, deliberately.** The app
 cannot run on web (the vault needs SecureStore), and leaving web enabled made
 `eas update` fail trying to bundle `expo-sqlite`'s web worker.
