@@ -23,7 +23,7 @@ export function createServer() {
     // is tracking the same tokens the wallet displays — without SSH-ing in.
     res.json({
       ok: true,
-      service: "decent-wallet-push-server",
+      service: "decentroneum-push-server",
       tokenRegistry: tokenRegistryStatus(),
     });
   });

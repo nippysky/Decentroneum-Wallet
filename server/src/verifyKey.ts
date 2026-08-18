@@ -237,7 +237,7 @@ async function main() {
     console.log(`  MARKET_API_KEYED_BASE_URL=${winner.a.baseUrl}`);
     console.log(`  MARKET_API_AUTH_MODE=${winner.a.auth}`);
   }
-  console.log("\n  Then: pm2 restart decent-wallet-push\n");
+  console.log("\n  Then: pm2 restart decentroneum-push\n");
   process.exit(0);
 }
 

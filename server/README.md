@@ -1,7 +1,6 @@
-# Decent Wallet Push Server
+# Decentroneum Push Server
 
-Server-side half of Decent Wallet's push notifications (see `PLAN.md` §6 in
-the repo root for the architecture rationale). The app already notifies
+Server-side half of Decentroneum's push notifications. The app already notifies
 users of incoming funds while it's open, via a client-side balance watcher
 (`src/lib/notifications/watcher.ts`). That can't fire while the app is
 backgrounded or fully killed — only a real push notification, sent by a
@@ -44,7 +43,7 @@ things that need to be shared across instances).
 
 ```bash
 cd server
-cp .env.example .env      # fill in RPC_URL, RPC_WS_URL, MARKET_API_KEY
+nano .env                  # see "Configuration" below
 npm install
 npm run dev                # tsx watch — restarts on change
 ```
@@ -56,18 +55,99 @@ npm run build
 npm start
 ```
 
-## Deploying (DigitalOcean droplet, alongside aku-api / ugwo-api)
+## Configuration
+
+**Every setting has a default in `src/config.ts`. `.env` only overrides them.**
+
+That is why the live `.env` is short and why a variable can be absent there and
+still have a value — `PRICE_REFRESH_INTERVAL_MS` is not in the droplet's `.env`,
+so it uses the code default. There is deliberately no `.env.example`: two files
+listing the same keys drift apart, and the one with the comments was never the
+one actually running. `config.ts` is the single source of truth, and each value
+carries the reasoning for the number next to it.
+
+`.env` should contain **only** what is secret or environment-specific:
+
+| Variable | Why it must be set here |
+| --- | --- |
+| `RPC_URL`, `RPC_WS_URL` | contain your provider API key |
+| `RPC_FALLBACK_URLS` | deployment-specific |
+| `MARKET_API_KEY` | secret |
+| `MARKET_API_MONTHLY_CAP` | must match your plan (Demo = `10000`) |
+| `MARKET_API_KEYED_BASE_URL`, `MARKET_API_AUTH_MODE` | set to whatever `npm run verify:key` reports |
+| `DB_PATH`, `PORT`, `CHAIN_ID` | deployment-specific |
+| `REQUIRE_SIGNATURE` | `true` in production |
+
+Anything else — refresh cadences, liquidity floor, anchor token, rate limits —
+lives in `config.ts` with its rationale. Override in `.env` only when a specific
+deployment genuinely needs to differ, and expect to explain why.
+
+### The market-data budget
+
+The CoinGecko Demo tier gives 10,000 credits/month, resetting on the 1st. Our
+cadences are sized at roughly **5,790/month for two listed tokens**, leaving
+substantial headroom; the arithmetic is in the `RANGES` comment in
+`src/marketData.ts`. Each additional token costs about 930/month, so past ~6
+tokens the cadences need raising or the plan needs upgrading.
+
+Two counters exist and they are not the same thing — see `src/apiBudget.ts`:
+
+- **rate** (`api_calls`) counts every attempt, including refused ones
+- **credits** (`api_usage`) counts only responses the provider actually served
+
+Verify the accounting and see the live figures:
 
 ```bash
-# on the droplet
-mkdir -p /var/www/decent-wallet-push && cd /var/www/decent-wallet-push
-# copy server/ here (scp/rsync/git clone — whatever you use for the other two APIs)
-cp .env.example .env && nano .env      # fill in RPC_URL, RPC_WS_URL, MARKET_API_KEY
-npm install
-npm run build
-pm2 start ecosystem.config.js
-pm2 save                                # persists across reboots (run `pm2 startup` once if you haven't already)
+npm run verify:budget
 ```
+
+## Deploying (DigitalOcean droplet, alongside aku-api / ugwo-api)
+
+Deploy target: `root@178.128.165.128:/var/www/decentroneum-push`.
+
+**First time only**, on the droplet:
+
+```bash
+mkdir -p /var/www/decentroneum-push && cd /var/www/decentroneum-push
+nano .env                              # see "Configuration" below
+```
+
+**Every deploy** — push code from your machine, then build on the droplet:
+
+```bash
+# from the repo root, LOCALLY. Note the trailing slash on server/ — without it
+# rsync creates /var/www/decentroneum-push/server/ instead of syncing into it.
+rsync -avz --delete \
+  --exclude '.env' \
+  --exclude 'node_modules/' \
+  --exclude 'data/' \
+  --exclude 'logs/' \
+  --exclude 'dist/' \
+  server/ root@178.128.165.128:/var/www/decentroneum-push/
+```
+
+```bash
+# then on the droplet
+cd /var/www/decentroneum-push
+npm install            # NOT --omit=dev: `npm run build` needs typescript
+npm run build
+pm2 restart decentroneum-push
+```
+
+**The five excludes are load-bearing, not decoration.** `--delete` removes
+anything on the droplet that isn't in your local `server/`, and every excluded
+path exists *only* on the droplet:
+
+| Exclude | Why deleting it would hurt |
+| --- | --- |
+| `.env` | the live secrets — RPC keys, market API key. Not in git. |
+| `data/` | the SQLite database: every push registration, the block cursor, the dedupe table |
+| `logs/` | pm2 output/error logs |
+| `node_modules/` | built for the droplet's platform; syncing macOS binaries breaks `better-sqlite3` |
+| `dist/` | rebuilt on the droplet from the synced `src/` |
+
+Drop any one of them from the command and `--delete` will remove the real thing
+on the server. If you are ever unsure, run it once with `--dry-run` first.
 
 Put it behind nginx + TLS like the other two APIs, e.g. an nginx server block proxying
 `push.decentroneum.com` → `127.0.0.1:8787`, then `certbot --nginx -d push.decentroneum.com`.
@@ -85,11 +165,6 @@ Update `PUSH_SERVER_URL` in `src/lib/notifications/register.ts` (main app) to ma
 
 ## Before going live
 
-- **Get this actually reachable** and update `PUSH_SERVER_URL` in
-  `src/lib/notifications/register.ts` (main app) to point at it.
-- **EAS project ID**: `app.json`'s `extra.eas.projectId` is a placeholder —
-  set it to a real EAS project so `Notifications.getExpoPushTokenAsync()`
-  can mint real Expo push tokens on-device.
 - **RPC reliability**: point `RPC_URL` at a dedicated/paid RPC endpoint for
   production traffic rather than a shared public one.
 - **Horizontal scaling**: if you outgrow one instance, move `cursor` and

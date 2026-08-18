@@ -1,7 +1,7 @@
-// pm2 process config for the Decent Wallet push server.
+// pm2 process config for the Decentroneum push server.
 // Deploy alongside aku-api / ugwo-api on the same droplet, e.g.:
 //
-//   cd /var/www/decent-wallet-push
+//   cd /var/www/decentroneum-push
 //   npm install --omit=dev   # or full install if building from source there
 //   npm run build
 //   pm2 start ecosystem.config.js
@@ -15,7 +15,7 @@
 module.exports = {
   apps: [
     {
-      name: "decent-wallet-push",
+      name: "decentroneum-push",
       script: "dist/index.js",
       cwd: __dirname,
       instances: 1, // single instance — see server/README.md on the SQLite/cursor

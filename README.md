@@ -1,6 +1,6 @@
-# Decent Wallet
+# Decentroneum
 
-Non-custodial mobile wallet for the **Electroneum Smart Chain** (EVM chain ID
+Non-custodial mobile wallet (formerly “Decent Wallet”) for the **Electroneum Smart Chain** (EVM chain ID
 `52014`). Expo SDK 57 / React Native 0.86, iOS and Android.
 
 Keys are generated on-device, encrypted with a passcode-derived scrypt key, and
@@ -89,8 +89,15 @@ derived from a repeatable code audit rather than from memory.
 eas build --platform android --profile preview      # installable APK, test first
 eas build --platform android --profile production   # AAB for Play
 eas build --platform ios     --profile production
-eas submit --platform android --latest
+eas submit --platform android --latest              # -> internal track, draft
 ```
+
+Uploads always land on the **internal** track as a **draft**, so nothing ever
+rolls out on its own. To reach real users, **promote the same bundle** through
+closed → open → production inside Play Console (Test and release → the release →
+Promote release). Promotion carries the exact AAB that was tested — there is no
+rebuild and no second upload, which is the entire reason tracks exist. There is
+deliberately no submit profile that uploads straight to production.
 
 JS-only changes ship over the air:
 
@@ -132,7 +139,7 @@ That is stale Xcode DerivedData disagreeing with a changed pod graph, not a code
 problem:
 
 ```bash
-rm -rf ~/Library/Developer/Xcode/DerivedData/DecentWallet-*
+rm -rf ~/Library/Developer/Xcode/DerivedData/Decentroneum-*
 npx expo prebuild --clean && npx expo run:ios
 ```
 

@@ -1,6 +1,6 @@
 // app/browser/web.tsx
 //
-// Decent Wallet — In-app browser w/ injected provider (EIP-1193-ish).
+// Decentroneum — In-app browser w/ injected provider (EIP-1193-ish).
 // Goal: “MetaMask-style” experience for dapps INSIDE our WebView, without WalletConnect.
 // Security model: per-domain permission gate (connect -> view address -> then allow signing/tx).
 //
@@ -193,7 +193,7 @@ function sanitizeEip712Types(types: unknown) {
 function injected() {
   return `
     (function () {
-      if (window.ethereum && window.ethereum.isDecentWallet) { return true; }
+      if (window.ethereum && window.ethereum.isDecentroneum) { return true; }
 
       var pending = {};
       var rid = 0;
@@ -270,7 +270,7 @@ function injected() {
       }
 
       var ethereum = {
-        isDecentWallet: true,
+        isDecentroneum: true,
         isMetaMask: false,
 
         // Compatibility niceties

@@ -17,9 +17,12 @@ import { fetchWithTimeout, withTimeoutOr } from "@/src/lib/net/http";
 export const PUSH_SERVER_URL = "https://push.decentroneum.com";
 
 function buildRegistrationMessage(address: string, pushToken: string, timestamp: string): string {
-  // Must exactly match server/src/verify.ts#buildRegistrationMessage.
+  // Must match server/src/verify.ts#buildRegistrationMessage BYTE FOR BYTE.
+  // The server recovers the signer from this exact text, so any edit here —
+  // wording, punctuation, field order — invalidates signatures against a
+  // server that hasn't been redeployed with the identical change.
   return [
-    "Register this device for Decent Wallet notifications.",
+    "Register this device for Decentroneum notifications.",
     `address:${address.toLowerCase()}`,
     `pushToken:${pushToken}`,
     `timestamp:${timestamp}`,

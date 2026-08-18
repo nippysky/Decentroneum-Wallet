@@ -9,7 +9,7 @@
 //     external handler is available (notably the iOS Simulator, and any
 //     device where the default browser is restricted). That was surfacing
 //     as an uncaught promise rejection after sending a transaction.
-//  2. UX — the user stays inside Decent Wallet, which is also what makes
+//  2. UX — the user stays inside Decentroneum, which is also what makes
 //     the explorer feel like part of the product instead of an ejection.
 import { router } from "expo-router";
 import { explorerAddressUrl, explorerTokenUrl, explorerTxUrl } from "@/src/lib/chain/activity";
