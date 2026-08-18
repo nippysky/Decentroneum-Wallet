@@ -147,14 +147,44 @@ const tryReserve = db.transaction((provider: string, maxPerMinute: number, minSp
     return oldest ? Math.max(100, WINDOW_MS - (now - oldest.called_at) + 50) : 1_000;
   }
 
+  // Records the RATE slot only. The monthly credit counter is deliberately
+  // NOT incremented here — see recordBillableCall below for why.
   db.prepare("INSERT INTO api_calls (provider, called_at) VALUES (?, ?)").run(provider, now);
+
+  return 0;
+});
+
+/**
+ * Count one call against the MONTHLY credit allowance.
+ *
+ * ─── Why this is separate from the rate slot above ──────────────────────────
+ *
+ * These two numbers measure different things and used to be incremented
+ * together, which made our figure drift badly from the provider's.
+ *
+ *   RATE (api_calls)  — "how hard are we hitting their server right now".
+ *     Every attempt counts, including one that comes back 429, because it
+ *     still travelled to them and still contributed to the burst.
+ *
+ *   CREDITS (api_usage) — "how much of the monthly plan have we consumed".
+ *     A 429 is a REJECTED request: the provider didn't serve data, so it
+ *     doesn't bill one. Neither does a request that timed out before any
+ *     response came back.
+ *
+ * Counting both in one place meant every retry after a 429 was billed again
+ * locally, so a single logical fetch could burn three or four credits on our
+ * ledger and none on theirs. That is exactly how our counter reached 10,000
+ * while the CoinGecko dashboard showed 6,743 — we shut the feature off a
+ * third of a month early, for calls that were never charged.
+ *
+ * Called only once an actual HTTP response has been received.
+ */
+export function recordBillableCall(provider: string): void {
   db.prepare(
     `INSERT INTO api_usage (provider, month, calls) VALUES (?, ?, 1)
      ON CONFLICT(provider, month) DO UPDATE SET calls = calls + 1`
   ).run(provider, monthKey());
-
-  return 0;
-});
+}
 
 /**
  * Blocks until a call is permitted. Returns false if the monthly cap is
@@ -229,6 +259,18 @@ export function monthlyUsed(provider: string): number {
 function monthlyRemaining(provider: string): number {
   if (config.marketApiMonthlyCap <= 0) return Number.POSITIVE_INFINITY;
   return config.marketApiMonthlyCap - monthlyUsed(provider);
+}
+
+/**
+ * True when the monthly allowance is spent.
+ *
+ * Exported so schedulers can skip a whole refresh cycle instead of walking
+ * every series and logging a refusal for each one. Before this existed, an
+ * exhausted month meant ~12 pointless iterations every 60 seconds for the
+ * rest of the month, each writing two lines to the error log.
+ */
+export function isBudgetExhausted(provider: string): boolean {
+  return monthlyRemaining(provider) <= 0;
 }
 
 export function budgetStatus(provider: string) {

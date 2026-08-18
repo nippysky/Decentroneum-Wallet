@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Decent Wallet",
-    "slug": "decent-wallet",
+    "name": "Decentroneum",
+    "slug": "decentroneum",
     "platforms": [
       "ios",
       "android"
@@ -9,11 +9,11 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "decentwallet",
+    "scheme": "decentroneum",
     "userInterfaceStyle": "automatic",
     "primaryColor": "#4DEE54",
     "backgroundColor": "#060807",
-    "description": "Decent Wallet is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem — send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
+    "description": "Decentroneum is the non-custodial mobile wallet for the Electroneum Smart Chain ecosystem — send, receive, and manage ETN and Electroneum ERC-20 tokens with bank-grade security.",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.decentroneum.wallet",
@@ -26,7 +26,7 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Decent Wallet uses Face ID to unlock your wallet and confirm transactions without re-entering your passcode.",
+        "NSFaceIDUsageDescription": "Decentroneum uses Face ID to unlock your wallet and confirm transactions without re-entering your passcode.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "remote-notification"
@@ -117,7 +117,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Decent Wallet uses Face ID to unlock your wallet and confirm transactions."
+          "faceIDPermission": "Decentroneum uses Face ID to unlock your wallet and confirm transactions."
         }
       ],
       [

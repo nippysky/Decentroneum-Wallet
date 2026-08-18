@@ -3,10 +3,13 @@ import { ethers } from "ethers";
 const MAX_SKEW_MS = 5 * 60 * 1000; // 5 minutes
 
 function buildRegistrationMessage(address: string, pushToken: string, timestamp: string): string {
-  // Must exactly match the message the client signs in
-  // src/lib/notifications/register.ts — changing this format is a breaking change.
+  // Must match src/lib/notifications/register.ts#buildRegistrationMessage
+  // BYTE FOR BYTE. A signature is only valid over the exact text that produced
+  // it, so editing this line — even the wording — invalidates every signature
+  // made by an app build that still sends the old text. Change it only
+  // alongside a coordinated app release.
   return [
-    "Register this device for Decent Wallet notifications.",
+    "Register this device for Decentroneum notifications.",
     `address:${address.toLowerCase()}`,
     `pushToken:${pushToken}`,
     `timestamp:${timestamp}`,

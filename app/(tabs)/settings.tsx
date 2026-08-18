@@ -583,7 +583,7 @@ export default function Settings() {
 
           {/* About */}
           <Card>
-            <SectionHeader title="About" subtitle="Decent Wallet by Decentroneum." />
+            <SectionHeader title="About" subtitle="Non-custodial wallet for the Electroneum Smart Chain." />
             <Row
               icon="globe-outline"
               title="decentroneum.com"

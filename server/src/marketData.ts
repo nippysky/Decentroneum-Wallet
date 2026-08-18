@@ -65,7 +65,13 @@ import {
   upsertTokenPrice,
 } from "./db";
 import { getTrackedTokens } from "./tokenRegistry";
-import { acquireCall, budgetStatus, recordRateLimited } from "./apiBudget";
+import {
+  acquireCall,
+  budgetStatus,
+  isBudgetExhausted,
+  recordBillableCall,
+  recordRateLimited,
+} from "./apiBudget";
 
 const FETCH_TIMEOUT_MS = 12_000;
 
@@ -94,19 +100,43 @@ export const RANGES = {
   //
   // `limit` is generous relative to the window so a busy period is fully
   // covered; extra candles are simply trimmed away.
+  //
+  // ─── refreshMs is a BUDGET decision, not a freshness preference ────────────
+  //
+  // Every (series, range) pair costs one credit per refresh, and there are
+  // THREE series — native ETN plus one pool per listed token. At 30 minutes,
+  // "1D" alone cost 48 × 3 = 144 credits/day, or 4,320/month, which together
+  // with the price timers put total demand near 13,900/month against a
+  // 10,000 cap. That is why the allowance ran out on the 18th.
+  //
+  // Current arithmetic, per month, for 2 listed tokens (3 series):
+  //
+  //   1D  hourly    24/day × 3 =  72/day  = 2,160
+  //   1W  6-hourly   4/day × 3 =  12/day  =   360
+  //   1M  12-hourly  2/day × 3 =   6/day  =   180
+  //   1Y  daily      1/day × 3 =   3/day  =    90
+  //                                         ─────
+  //   history subtotal                      2,790
+  //   prices + ETN price @ 30 min           2,880
+  //   pool resolution @ 12h                  ~120
+  //                                         ─────
+  //   total                                ~5,790   (cap 10,000)
+  //
+  // Adding a token costs ~930/month in history alone, so around 6 tokens this
+  // needs raising again or the plan needs upgrading.
   "1D": {
     timeframe: "minute",
     aggregate: 15,
     limit: 200,
     windowMs: 24 * 60 * 60_000,
-    refreshMs: 30 * 60_000,
+    refreshMs: 60 * 60_000,
   },
   "1W": {
     timeframe: "hour",
     aggregate: 4,
     limit: 200,
     windowMs: 7 * 24 * 60 * 60_000,
-    refreshMs: 4 * 60 * 60_000,
+    refreshMs: 6 * 60 * 60_000,
   },
   "1M": {
     timeframe: "hour",
@@ -198,6 +228,12 @@ async function gt<T = any>(path: string, attempt = 0): Promise<T | null> {
   try {
     const { url, headers } = buildRequest(path);
     const res = await fetch(url, { signal: controller.signal, headers });
+
+    // A response came back, so the provider handled the request. Everything
+    // except a 429 consumes a monthly credit on their side; a 429 is a refusal
+    // and is not billed. Counting here rather than at reserve time is what
+    // keeps our ledger in step with their dashboard — see apiBudget.ts.
+    if (res.status !== 429) recordBillableCall(PROVIDER);
 
     if (res.status === 429) {
       const retryAfter = Number(res.headers.get("retry-after"));
@@ -470,7 +506,28 @@ async function refreshPriceHistoryFor(pool: string, side: "base" | "quote", rang
   return true;
 }
 
+/** Throttles the "budget spent" notice to once an hour, not once a minute. */
+let lastExhaustedNoticeAt = 0;
+const EXHAUSTED_NOTICE_EVERY_MS = 60 * 60_000;
+
 export async function refreshPriceHistory(force = false): Promise<void> {
+  // Bail out of the WHOLE cycle when the month's credits are gone. Each
+  // (series, range) would otherwise be walked, attempt a call, be refused, and
+  // log twice — every 60 seconds until the 1st of next month. Nothing in here
+  // can succeed until the allowance resets, so there is nothing to retry.
+  if (isBudgetExhausted(PROVIDER)) {
+    const now = Date.now();
+    if (now - lastExhaustedNoticeAt >= EXHAUSTED_NOTICE_EVERY_MS) {
+      lastExhaustedNoticeAt = now;
+      const s = budgetStatus(PROVIDER);
+      console.warn(
+        `[market] monthly credit allowance spent (${s.monthlyUsed}/${s.monthlyCap} for ${s.month}) — ` +
+          `price history paused until the allowance resets. Cached series keep serving.`
+      );
+    }
+    return;
+  }
+
   const mapped = listTokenPools();
   const now = Date.now();
 

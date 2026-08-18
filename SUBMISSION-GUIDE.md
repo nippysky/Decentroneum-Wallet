@@ -1,10 +1,10 @@
-# Decent Wallet — store submission guide
+# Decentroneum — store submission guide
 
 Answers for every question the two consoles will ask, grounded in the code
 audit in §0 below. Where a policy is genuinely ambiguous this file says so
 rather than guessing confidently.
 
-**The single fact that drives most answers:** Decent Wallet is
+**The single fact that drives most answers:** Decentroneum is
 **non-custodial**. Keys are generated on-device, encrypted with a
 passcode-derived scrypt key, and stored in the iOS Keychain / Android
 Keystore. We never hold, transmit or have access to user funds or keys. Both
@@ -14,7 +14,7 @@ App identity:
 
 | | |
 | --- | --- |
-| Name | Decent Wallet |
+| Name | Decentroneum |
 | Bundle ID / package | `com.decentroneum.wallet` |
 | Version | 1.0.0 |
 | Privacy Policy | https://decentroneum.com/privacy |
@@ -140,7 +140,7 @@ pulled after launch.
 - **Full description** — must state non-custodial early, avoid any wording that
   implies investment returns, price prediction or trading. Suggested opening:
 
-  > Decent Wallet is a non-custodial wallet for the Electroneum Smart Chain.
+  > Decentroneum is a non-custodial wallet for the Electroneum Smart Chain.
   > Your recovery phrase is generated on your device and encrypted there — we
   > never hold, see, or have access to your keys or your funds. Send and
   > receive ETN and Electroneum tokens, track prices and balances, and connect
@@ -204,7 +204,7 @@ Same reasoning as Play: the unrestricted in-app browser drives it. Expect
 
 This is the field that most often decides a crypto rejection. Suggested text:
 
-> Decent Wallet is a **non-custodial** wallet for the Electroneum Smart Chain
+> Decentroneum is a **non-custodial** wallet for the Electroneum Smart Chain
 > (EVM chain ID 52014).
 >
 > • We do not hold, transmit, or have access to user funds. Private keys and
@@ -226,7 +226,7 @@ This is the field that most often decides a crypto rejection. Suggested text:
 Crypto wallets commonly get a 3.1.5(b) query asking to confirm custody
 arrangements or licensing. The reply is short and factual:
 
-> Decent Wallet is non-custodial. The app does not store, transmit or control
+> Decentroneum is non-custodial. The app does not store, transmit or control
 > user funds at any point; keys are generated and held only on the user's
 > device. No exchange or money-transmission service is offered, so no
 > money-transmitter licence applies. The developer is enrolled as an

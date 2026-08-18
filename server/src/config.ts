@@ -110,10 +110,18 @@ export const config = {
   // fixed rate-limit window. Cheap insurance against a systematic collision.
   marketApiJitterMs: Number(process.env.MARKET_API_JITTER_MS ?? 3000),
   // 0 = uncapped (keyless). The Demo tier's 10,000/month is the binding
-  // constraint there, not the per-minute rate: the cadences below are sized so
-  // two tokens use roughly 8,000 calls/month, leaving headroom. Adding tokens
-  // costs history calls linearly, so past ~4 tokens either raise the cadences
-  // or move to a paid plan.
+  // constraint, not the per-minute rate.
+  //
+  // The original cadences were sized from an estimate of "~8,000/month for two
+  // tokens" that undercounted in two ways: it missed that native ETN is a
+  // THIRD history series alongside the pools, and that `refreshEtnPrice` runs
+  // on its own timer at the same interval as `refreshPrices` — so the price
+  // leg costs double what one timer would. Real demand was ~13,900/month, and
+  // the allowance ran out on the 18th.
+  //
+  // Cadences are now sized at ~5,790/month for two tokens; the full arithmetic
+  // is in the RANGES comment in marketData.ts, which is where the numbers that
+  // drive it actually live. Adding a token costs ~930/month.
   marketApiMonthlyCap: Number(process.env.MARKET_API_MONTHLY_CAP ?? 0),
 
   geckoTerminalNetwork: process.env.GECKOTERMINAL_NETWORK ?? "electroneum",
@@ -144,9 +152,15 @@ export const config = {
   // token this was the cheapest thing to slow down.
   poolResolveIntervalMs: Number(process.env.POOL_RESOLVE_INTERVAL_MS ?? 12 * 60 * 60 * 1000),
   // One call covers every token (pools/multi takes 30 addresses), so this is
-  // the cadence users actually feel. Ten minutes on a chain trading ~$40/day
-  // is already far finer than the market moves.
-  priceRefreshIntervalMs: Number(process.env.PRICE_REFRESH_INTERVAL_MS ?? 10 * 60 * 1000),
+  // the cadence users actually feel.
+  //
+  // NOTE this interval drives TWO timers, not one — `refreshPrices` and
+  // `refreshEtnPrice` both run on it, so halving it doubles two costs. At 30
+  // minutes the pair costs 2,880 credits/month, still the single largest line
+  // in the budget. It was 10 minutes, costing 8,640 — most of the plan, spent
+  // on refreshing a price nobody could see change on a chain trading a few
+  // hundred dollars a day.
+  priceRefreshIntervalMs: Number(process.env.PRICE_REFRESH_INTERVAL_MS ?? 30 * 60 * 1000),
 
   // CoinGecko is used for EXACTLY ONE THING: the price of native ETN, which
   // is a genuine listed market. Every token price comes from on-chain pools

@@ -68,16 +68,16 @@ function warnIfServiceRunning() {
   try {
     const out = execSync("pm2 jlist 2>/dev/null", { encoding: "utf8" });
     const running = JSON.parse(out).some(
-      (p: any) => p?.name === "decent-wallet-push" && p?.pm2_env?.status === "online"
+      (p: any) => p?.name === "decentroneum-push" && p?.pm2_env?.status === "online"
     );
     if (!running) return;
 
     console.log(
-      "NOTE: the decent-wallet-push service is online and shares this droplet's\n" +
+      "NOTE: the decentroneum-push service is online and shares this droplet's\n" +
         "      API budget. Both processes now draw from one SQLite-backed allowance,\n" +
         "      so nothing will exceed the rate limit — but this run will be slower\n" +
         "      because it queues behind the service's own refreshes.\n" +
-        "      For the fastest clean run: pm2 stop decent-wallet-push\n"
+        "      For the fastest clean run: pm2 stop decentroneum-push\n"
     );
   } catch {
     // pm2 absent or not readable — nothing useful to say, so say nothing.
@@ -85,7 +85,7 @@ function warnIfServiceRunning() {
 }
 
 async function main() {
-  console.log("\n═══ Decent Wallet — market data verification ═══\n");
+  console.log("\n═══ Decentroneum — market data verification ═══\n");
   console.log(`network : ${config.geckoTerminalNetwork}`);
   console.log(`anchor  : ${config.anchorSymbol} ${config.anchorTokenAddress}`);
   console.log(`floor   : $${config.minPoolLiquidityUsd}`);
