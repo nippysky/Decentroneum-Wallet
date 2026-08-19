@@ -121,6 +121,20 @@ of `expo-router`.** Do not remove them.
 its own copies transitively, so they are removable in principle. Not worth the
 build risk for a marginally smaller dependency tree.
 
+**`slug` is `decent-wallet` and must stay that way, even though the app is
+called Decentroneum.** It has to match the slug of the EAS project that
+`extra.eas.projectId` points at, and **Expo does not allow a slug to be
+renamed** — the dashboard renames the project's *display name* only. Editing it
+here fails the build with *"Slug for project identified by extra.eas.projectId
+does not match"*.
+
+The only way to change it is deleting and recreating the EAS project, which
+would destroy the **Android upload keystore** (Google Play requires every update
+to be signed with the same key), orphan the OTA channel of every installed
+build (`updates.url` is keyed to the project ID), and invalidate every Expo push
+token already registered on the push server. The slug is internal and never
+shown to users or the stores — leave it.
+
 **Every build profile in `eas.json` must declare a `channel`.** `app.json` sets
 `updates.url`, but a binary only knows where to look for updates if its build
 profile named a channel. Without one, EAS Build warns *"a channel is not
