@@ -9,8 +9,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
 import { PasscodePad, isFullPasscode } from "@/src/components/PasscodePad";
+import { FullSheet } from "@/src/components/FullSheet";
+import { TextButton } from "@/src/components/TextButton";
+import { HoldToConfirm } from "@/src/components/HoldToConfirm";
 import { useTheme } from "@/src/theme/ThemeProvider";
-import { SPACING } from "@/src/theme/tokens";
+import { RADIUS, SPACING } from "@/src/theme/tokens";
 
 import { deviceHasWallet, useSession } from "@/src/state/session";
 
@@ -21,9 +24,12 @@ export default function Unlock() {
   const unlock = useSession((s) => s.unlock);
   const biometricEnabled = useSession((s) => s.biometricEnabled);
   const getBioPin = useSession((s) => s.getBioPin);
+  const resetDeviceWallet = useSession((s) => s.resetDeviceWallet);
 
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [bioReady, setBioReady] = useState(false);
   const [bioLabel, setBioLabel] = useState("Biometrics");
   const [bioIcon, setBioIcon] = useState<keyof typeof Ionicons.glyphMap>("scan-outline");
@@ -178,7 +184,76 @@ export default function Unlock() {
         />
 
         <View style={{ marginTop: "auto" }} />
+
+        {/* The only way off this screen without the passcode.
+            *
+            * Without it a forgotten passcode is permanent: SecureStore writes to
+            * the iOS Keychain, and Keychain items SURVIVE deleting the app — so
+            * reinstalling lands the user right back here. They would be staring
+            * at a keypad they can't satisfy, guarding coins they can still see
+            * on a block explorer, with their recovery phrase in a drawer and no
+            * screen in the app willing to accept it.
+            *
+            * Deliberately understated, and deliberately behind a confirmation
+            * sheet plus a hold gesture: this is the single most destructive
+            * action in the app, and the one place where a mis-tap costs money
+            * if the phrase was never written down. */}
+        <TextButton
+          title="Forgot passcode?"
+          onPress={() => setResetOpen(true)}
+          style={{ marginBottom: SPACING.md }}
+        />
       </View>
+
+      <FullSheet
+        visible={resetOpen}
+        title="Forgot passcode?"
+        subtitle="Your passcode can't be recovered — but your wallet can."
+        onClose={() => setResetOpen(false)}
+        footer={
+          <HoldToConfirm
+            title="Hold to erase this wallet"
+            holdingTitle="Keep holding to erase…"
+            ms={1500}
+            disabled={resetting}
+            onConfirmed={async () => {
+              if (resetting) return;
+              setResetting(true);
+              try {
+                await resetDeviceWallet();
+                setResetOpen(false);
+                router.replace("/(onboarding)/welcome");
+              } finally {
+                setResetting(false);
+              }
+            }}
+          />
+        }
+      >
+        <View style={{ gap: SPACING.md }}>
+          <T color={theme.muted} variant="body">
+            The passcode never leaves this device and is not stored anywhere, so
+            there is nothing to reset or email. What you can do is remove this
+            wallet from the device and restore it with your recovery phrase.
+          </T>
+
+          <View
+            style={{
+              backgroundColor: theme.surface2,
+              borderRadius: RADIUS.md,
+              padding: SPACING.md,
+              gap: SPACING.sm,
+            }}
+          >
+            <T weight="semibold">Only continue if you have your recovery phrase</T>
+            <T color={theme.muted} variant="body">
+              Your accounts live on the blockchain, not in this app, so erasing
+              here does not touch your funds. But the phrase is the only way
+              back to them. Without it, removing this wallet is permanent.
+            </T>
+          </View>
+        </View>
+      </FullSheet>
     </Screen>
   );
 }
