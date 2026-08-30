@@ -3,8 +3,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { hapticError, hapticWarning } from "@/src/lib/haptics";
-import * as LocalAuthentication from "expo-local-authentication";
 import { Ionicons } from "@expo/vector-icons";
+import { biometricMeta, isBiometricsAvailable } from "@/src/lib/security/biometrics";
 
 import { Screen } from "@/src/components/Screen";
 import { T } from "@/src/components/T";
@@ -84,27 +84,7 @@ export default function Unlock() {
 
   const canUseBiometrics = async () => {
     if (!biometricEnabled) return false;
-    const has = await LocalAuthentication.hasHardwareAsync();
-    const enrolled = await LocalAuthentication.isEnrolledAsync();
-    return has && enrolled;
-  };
-
-  const computeBioMeta = async (): Promise<{
-    label: string;
-    icon: keyof typeof Ionicons.glyphMap;
-  }> => {
-    try {
-      const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-      if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-        return { label: "Face ID", icon: "scan-outline" }; // Ionicons has no "face-id"
-      }
-      if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-        return { label: "Touch ID", icon: "finger-print-outline" };
-      }
-      return { label: "Biometrics", icon: "scan-outline" };
-    } catch {
-      return { label: "Biometrics", icon: "scan-outline" };
-    }
+    return isBiometricsAvailable();
   };
 
   const doBiometricUnlock = async () => {
@@ -132,7 +112,7 @@ export default function Unlock() {
   useEffect(() => {
     (async () => {
       setBioReady(await canUseBiometrics());
-      const meta = await computeBioMeta();
+      const meta = await biometricMeta();
       setBioLabel(meta.label);
       setBioIcon(meta.icon);
     })();
