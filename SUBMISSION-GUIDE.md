@@ -259,6 +259,120 @@ in Play Console can be left empty.
 
 ---
 
+# Part 2.9 — Public beta: TestFlight open testing (iOS)
+
+Goal: a link anyone in the community can open to install the app, matching the
+Google Play open-testing link.
+
+**TestFlight and the App Store release are separate tracks.** The Distribution
+tab — screenshots, description, keywords, promotional text — belongs to the
+App Store release and does **not** need to be finished to run a public beta.
+TestFlight needs only the Test Information below. The app icon already appears
+because it ships inside the binary.
+
+## 2.9.1 What external testing actually requires
+
+- Up to **10,000** external testers.
+- A **public link** anyone can open. You can cap how many join and filter by
+  device / OS version.
+- The **first build of each version needs Beta App Review** — usually ~24 hours,
+  sometimes 4–48. Later builds of the same version are typically approved in
+  minutes unless entitlements, privacy strings or marketing copy changed.
+
+Internal testing (the "Team (Expo)" group already there) needs no review, which
+is why builds 1–4 went straight to *Ready to Submit*.
+
+## 2.9.2 Fill Test Information first
+
+**TestFlight → Test Information.** Required before an external group can be
+submitted:
+
+- **Beta App Description**
+
+  > Decentroneum is a non-custodial wallet for the Electroneum Smart Chain
+  > (chain ID 52014). Create or import a wallet, hold and transfer ETN and
+  > Electroneum tokens, track balances and prices, and connect to Electroneum
+  > dApps through the built-in browser. Your recovery phrase is generated on
+  > your device and encrypted there — we never hold, see, or have access to
+  > your keys or your funds.
+
+- **Feedback Email** — one you actually read; TestFlight feedback lands there.
+- **Privacy Policy URL** — `https://decentroneum.com/privacy`
+- **Contact information** — first name, last name, phone, email. Apple uses this
+  if review has a question; a wrong number costs days.
+
+**What to Test** (per build, and settable from CI with
+`eas submit --platform ios --what-to-test "..."`):
+
+  > - Create a new wallet and save the recovery phrase
+  > - Import an existing 12- or 24-word phrase from another wallet
+  > - Add accounts under a phrase; hide and unhide them
+  > - Send and receive ETN and tokens
+  > - Open a dApp in the built-in browser and connect
+  > - Turn on Face ID unlock and notifications
+  >
+  > Report anything confusing, slow or wrong — especially anything involving
+  > balances or transactions.
+
+## 2.9.3 Create the public group
+
+**TestFlight → External Testing → +** (next to EXTERNAL TESTING)
+
+1. Name the group — e.g. `Community Beta`.
+2. Add the **latest build** (currently 4).
+3. Turn on **Enable Public Link**, and set a tester cap if you want one.
+4. Submit for **Beta App Review**.
+
+Then wait for approval before sharing the link.
+
+## 2.9.4 The review answers that matter
+
+**Untick "Sign-in required"** under App Review Information. The app has no
+account system; leaving it ticked makes Apple wait for credentials that do not
+exist — the same class of failure as Play's "Missing sign in details".
+
+Beta App Review applies the App Review Guidelines, so the 3.1.5(b) answer in
+§2.6 is the one to have ready. The account must be the **Organization**
+(NIPPYSKY LIMITED) — already true.
+
+## 2.9.5 EU trader status
+
+The banner across App Store Connect is account-wide and blocks EU distribution
+under the Digital Services Act. Fill it in **Business → Trader Status** with the
+NIPPYSKY LIMITED registration details. Doing it now covers Ųgwọ and Akù too,
+and removes a blocker you would otherwise hit at App Store release.
+
+---
+
+# Part 2.8 — Play pre-launch advisories, and which to act on
+
+Play surfaces three kinds of message on a release. Only one of the three we hit
+is actionable.
+
+**"Missing sign in details" — ACT ON THIS.** Tagged *Policy*, badged *Needs
+attention*. Play needs a documented route to every screen; having no login does
+not exempt you from saying so. Fix in **App content → App access → All
+functionality is available without special access**, with the reviewer note in
+§1.7. No rebuild needed.
+
+**"Deprecated APIs for edge-to-edge" — NOT OUR CODE.** Every call site Play
+lists is inside React Native (`StatusBarModule`, `WindowUtilKt`) or Google's own
+Material Components (`BottomSheetDialog`, `EdgeToEdgeUtils`, `SheetDialog`).
+`src/components/ThemedStatusBar.tsx` sets **only `barStyle`** and deliberately
+never touches `setStatusBarColor` / `setNavigationBarColor`. The warning clears
+when React Native upgrades. Deleting our component to silence it would
+reintroduce the unreadable status bar it exists to fix.
+
+**"Remove resizability and orientation restrictions" — DEFERRED ON PURPOSE.**
+From `orientation: "portrait"` in `app.json`. Android 16 ignores it on large
+screens only; phones are unaffected, and `ios.supportsTablet` is `false`, so the
+app is phone-first by design. Unlocking rotation means re-validating every
+bottom-pinned footer's safe-area math, the passcode pad, the WebView browser and
+the full-screen modals. Advisory, not policy — do it as a deliberate piece of
+work, not as a pre-submission patch.
+
+---
+
 # Part 2.7 — Known open items
 
 - **Droplet:** `apt update && apt upgrade` + reboot still pending. `pm2 save` is

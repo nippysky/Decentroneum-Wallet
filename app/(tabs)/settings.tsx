@@ -4,7 +4,7 @@ import { toast } from "@/src/state/toast";
 import { Pressable, Switch, View, ScrollView } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import * as LocalAuthentication from "expo-local-authentication";
+import { biometricMeta, isBiometricsAvailable } from "@/src/lib/security/biometrics";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Screen } from "@/src/components/Screen";
@@ -178,6 +178,7 @@ function PasscodeSheet({
   // on the way out.
   useEffect(() => {
     if (visible) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPin("");
     setErr(null);
     setBusy(false);
@@ -303,20 +304,7 @@ function EraseWalletSheet({
 }
 
 async function getBiometricLabel(): Promise<string> {
-  try {
-    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-    if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) return "Face ID";
-    if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) return "Touch ID";
-    return "Biometrics";
-  } catch {
-    return "Biometrics";
-  }
-}
-
-async function isBiometricsAvailable(): Promise<boolean> {
-  const has = await LocalAuthentication.hasHardwareAsync();
-  const enrolled = await LocalAuthentication.isEnrolledAsync();
-  return has && enrolled;
+  return (await biometricMeta()).label;
 }
 
 export default function Settings() {
