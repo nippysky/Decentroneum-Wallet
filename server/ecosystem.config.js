@@ -1,8 +1,9 @@
 // pm2 process config for the Decentroneum push server.
-// Deploy alongside aku-api / ugwo-api on the same droplet, e.g.:
 //
-//   cd /var/www/decentroneum-push
-//   npm install --omit=dev   # or full install if building from source there
+// Deploy, from the directory this file sits in:
+//
+//   npm install              # full install — the build needs typescript
+
 //   npm run build
 //   pm2 start ecosystem.config.js
 //   pm2 save                 # persist across reboots (run `pm2 startup` once, first time only)

@@ -101,14 +101,25 @@ Verify the accounting and see the live figures:
 npm run verify:budget
 ```
 
-## Deploying (DigitalOcean droplet, alongside aku-api / ugwo-api)
+## Deploying
 
-Deploy target: `root@178.128.165.128:/var/www/decentroneum-push`.
+Deploy target is a DigitalOcean droplet running the service under pm2 behind
+nginx. The host is deliberately not written down here — this repository is
+public. Set it once in your shell instead:
+
+```bash
+export DEPLOY_HOST=user@your-server        # not root; see below
+export DEPLOY_DIR=/var/www/decentroneum-push
+```
+
+**Don't deploy as root.** The commands below use `$DEPLOY_HOST` so the account
+is yours to choose; a non-root user with write access to `$DEPLOY_DIR` and
+permission to run pm2 is enough, and it means a leaked key isn't a leaked box.
 
 **First time only**, on the droplet:
 
 ```bash
-mkdir -p /var/www/decentroneum-push && cd /var/www/decentroneum-push
+mkdir -p $DEPLOY_DIR && cd $DEPLOY_DIR
 nano .env                              # see "Configuration" below
 ```
 
@@ -116,19 +127,19 @@ nano .env                              # see "Configuration" below
 
 ```bash
 # from the repo root, LOCALLY. Note the trailing slash on server/ — without it
-# rsync creates /var/www/decentroneum-push/server/ instead of syncing into it.
+# rsync creates $DEPLOY_DIR/server/ instead of syncing into it.
 rsync -avz --delete \
   --exclude '.env' \
   --exclude 'node_modules/' \
   --exclude 'data/' \
   --exclude 'logs/' \
   --exclude 'dist/' \
-  server/ root@178.128.165.128:/var/www/decentroneum-push/
+  server/ $DEPLOY_HOST:$DEPLOY_DIR/
 ```
 
 ```bash
 # then on the droplet
-cd /var/www/decentroneum-push
+cd $DEPLOY_DIR
 npm install            # NOT --omit=dev: `npm run build` needs typescript
 npm run build
 pm2 restart decentroneum-push
@@ -149,7 +160,7 @@ path exists *only* on the droplet:
 Drop any one of them from the command and `--delete` will remove the real thing
 on the server. If you are ever unsure, run it once with `--dry-run` first.
 
-Put it behind nginx + TLS like the other two APIs, e.g. an nginx server block proxying
+Put it behind nginx + TLS, e.g. an nginx server block proxying
 `push.decentroneum.com` → `127.0.0.1:8787`, then `certbot --nginx -d push.decentroneum.com`.
 Update `PUSH_SERVER_URL` in `src/lib/notifications/register.ts` (main app) to match.
 

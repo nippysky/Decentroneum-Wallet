@@ -53,3 +53,15 @@ server/logs/
 GoogleService-Info.plist
 *firebase-adminsdk*.json
 *-firebase-*.json
+
+# Internal store-submission notes — Apple Team ID, console answers,
+# review strategy. Kept locally, never published.
+SUBMISSION-GUIDE.md
+
+# AI coding-agent workspaces, in case any tool ever drops one here
+.claude/
+CLAUDE.md
+.cursor/
+.cursorrules
+.aider*
+.github/copilot-instructions.md
