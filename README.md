@@ -1,30 +1,41 @@
 # Decentroneum
 
-Non-custodial mobile wallet (formerly “Decent Wallet”) for the **Electroneum Smart Chain** (EVM chain ID
-`52014`). Expo SDK 57 / React Native 0.86, iOS and Android.
+A non-custodial mobile wallet for the **Electroneum Smart Chain** (EVM chain ID
+`52014`). iOS and Android, built with Expo SDK 57 / React Native 0.86.
 
-Keys are generated on-device, encrypted with a passcode-derived scrypt key, and
-stored in the iOS Keychain / Android Keystore. Recovery phrases never leave the
-device and are never transmitted.
+Recovery phrases are generated on-device, encrypted with a passcode-derived
+scrypt key, and stored in the iOS Keychain / Android Keystore. Keys and phrases
+never leave the device and are never transmitted.
 
----
+**Beta:** [TestFlight (iOS)](https://testflight.apple.com/join/5mjQGBvP) · Google Play (open testing)
+
+## Features
+
+- Create a wallet, or import an existing 12- or 24-word BIP-39 phrase
+- Multiple recovery phrases, each with its own derived accounts
+- Send and receive ETN and Electroneum Smart Chain tokens
+- Live prices and charts, sourced from on-chain liquidity pools
+- Built-in dApp browser with an injected EIP-1193 provider — no WalletConnect required
+- Push notifications for incoming transfers, delivered even when the app is closed
+- Face ID / Touch ID / fingerprint unlock, and screenshot protection on secret screens
+- Light and dark themes
 
 ## Quick start
 
 ```bash
 npm install
-npx expo start          # then press i / a, or scan with a dev build
+npx expo start
 ```
 
-The app requires a **development build** (`expo-dev-client`), not Expo Go —
-it uses native modules Expo Go doesn't bundle.
+The app needs a **development build** (`expo-dev-client`), not Expo Go — it
+relies on native modules Expo Go doesn't bundle:
 
 ```bash
 npx expo prebuild --clean
 npx expo run:ios          # or run:android
 ```
 
-## Checks — run before any release
+### Checks
 
 ```bash
 npm run verify:hd    # 84 assertions against the real vault. Must print PASS.
@@ -32,18 +43,16 @@ npm run typecheck
 npm run lint
 ```
 
-`verify:hd` runs `src/lib/crypto/vault.ts` in Node with the Expo native modules
-stubbed, and asserts BIP-44 derivation against the published Hardhat/Anvil test
-vectors, multi-phrase isolation, hide/unhide reversibility, and that no
-migration path can move an existing address. **Never ship a change to
+`verify:hd` executes `src/lib/crypto/vault.ts` in Node with the Expo native
+modules stubbed, asserting BIP-44 derivation against the published
+Hardhat/Anvil test vectors, multi-phrase isolation, hide/unhide reversibility,
+and that no code path can move an existing address. **Never ship a change under
 `src/lib/crypto/` without it passing** — the failure mode is unreachable funds.
 
----
-
-## How the wallet is organised
+## Project layout
 
 ```
-app/                     expo-router routes only — thin compositions
+app/                     expo-router routes — thin compositions only
 src/
   components/            shared UI primitives
   features/accounts/     account + recovery-phrase management
@@ -51,6 +60,7 @@ src/
     chain/               RPC, ERC-20, signing, network config
     crypto/              vault, BIP-44 derivation, scrypt KDF   ← the core
     notifications/       push registration + balance watcher
+    security/            screen capture guard, biometrics
     tokens/              token registry, native asset identity
   state/                 zustand stores (no secrets held here)
   theme/                 tokens, typography, ThemeProvider
@@ -58,98 +68,82 @@ server/                  push notification service (separate deploy)
 scripts/verify-hd-wallet.js
 ```
 
-### The vault model, in one paragraph
+## How the wallet works
+
+### The vault
 
 A vault holds one or more **seeds** (recovery phrases). Each seed owns accounts
 derived at BIP-44 `m/44'/60'/0'/0/N` — the standard path, so the same phrase
 yields the same addresses in MetaMask, Ledger and Rabby. "Add account"
-increments N; nothing new is generated and there is nothing new to back up.
-Importing a phrase creates a **new seed**, so its sub-accounts can all be
-restored. There is deliberately no "imported account" category floating outside
-the phrase hierarchy — that category is where people lose funds, because it
-escapes a seed backup silently. Full reasoning is in the header comment of
+increments `N`; nothing new is generated and there is nothing new to back up.
+Importing a phrase creates a **new seed**, so its sub-accounts are all
+recoverable.
+
+There is deliberately no "imported account" category sitting outside the phrase
+hierarchy. That category is where people lose funds, because such accounts
+escape a seed backup silently. Full reasoning is in the header of
 `src/lib/crypto/vault.ts`.
 
 ### Accounts are hidden, never deleted
 
-A derived address exists on-chain whether the app shows it or not, so there is
-no "delete account" — only **hide**, which keeps the index and unhides to the
-identical address. Removing a whole recovery phrase *is* a real removal and
-carries a warning. See `hideAccount` in the vault.
+A derived address exists on-chain whether the app displays it or not, so there
+is no "delete account" — only **hide**, which preserves the index and unhides to
+the identical address. Removing an entire recovery phrase *is* a real removal
+and carries a warning. See `hideAccount` in the vault.
 
----
+### Token list
+
+Listed tokens come from a published registry, not the app binary, so adding a
+token requires no release. The wallet and the push server read the same URL,
+which is what stops them drifting apart.
 
 ## Releasing
 
-Store submission answers — Play Data Safety, Financial Features, Apple App
-Privacy, review notes — are in **[SUBMISSION-GUIDE.md](./SUBMISSION-GUIDE.md)**,
-derived from a repeatable code audit rather than from memory.
-
 ```bash
 eas build --platform android --profile preview      # installable APK, test first
-eas build --platform android --profile production   # AAB for Play
-eas build --platform ios     --profile production
-eas submit --platform android --latest              # -> internal track, draft
+eas build --platform all --profile production
+eas submit --platform android --latest
 ```
 
-Uploads always land on the **internal** track as a **draft**, so nothing ever
-rolls out on its own. To reach real users, **promote the same bundle** through
-closed → open → production inside Play Console (Test and release → the release →
-Promote release). Promotion carries the exact AAB that was tested — there is no
-rebuild and no second upload, which is the entire reason tracks exist. There is
-deliberately no submit profile that uploads straight to production.
+Uploads land on the internal track as a draft. To reach production, **promote
+the same bundle** through the tracks in Play Console rather than uploading
+again — promotion ships the exact binary that was tested.
 
-JS-only changes ship over the air:
+JS and asset changes go out over the air:
 
 ```bash
 eas update --branch production --message "..."
 ```
 
 Anything touching `app.json`, a config plugin, or a native dependency needs a
-full `eas build`. `runtimeVersion` is `appVersion`, so bumping `version` cuts
-existing installs off from updates until they install a new build — intended
-safety behaviour, not a bug.
+full `eas build`.
 
----
+## Development notes
 
-## Things that will bite you
-
-**`react-dom` and `react-native-web` look unused — they are peer dependencies
-of `expo-router`.** Do not remove them.
+**`react-dom` and `react-native-web` look unused — they're peer dependencies of
+`expo-router`.** Don't remove them.
 
 **`@react-navigation/*` are installed but never imported.** `expo-router` pulls
-its own copies transitively, so they are removable in principle. Not worth the
+its own copies transitively, so they're removable in principle — not worth the
 build risk for a marginally smaller dependency tree.
-
-**`slug` is `decent-wallet` and must stay that way, even though the app is
-called Decentroneum.** It has to match the slug of the EAS project that
-`extra.eas.projectId` points at, and **Expo does not allow a slug to be
-renamed** — the dashboard renames the project's *display name* only. Editing it
-here fails the build with *"Slug for project identified by extra.eas.projectId
-does not match"*.
-
-The only way to change it is deleting and recreating the EAS project, which
-would destroy the **Android upload keystore** (Google Play requires every update
-to be signed with the same key), orphan the OTA channel of every installed
-build (`updates.url` is keyed to the project ID), and invalidate every Expo push
-token already registered on the push server. The slug is internal and never
-shown to users or the stores — leave it.
 
 **Every build profile in `eas.json` must declare a `channel`.** `app.json` sets
 `updates.url`, but a binary only knows where to look for updates if its build
-profile named a channel. Without one, EAS Build warns *"a channel is not
-specified … EAS Update will be disabled for the build"* — and it means it: that
-binary can never receive an OTA update, and no `eas update` can retrofit it.
-The only fix is a new build. Channel names here match branch names
-(`production`, `preview`, `development`), so `eas update --branch production`
-reaches the production channel.
+profile named a channel. Without one, EAS Build warns that updates are disabled
+— and means it: that binary can never receive an OTA update, and no `eas update`
+can retrofit it. The only fix is a new build.
 
-**`platforms` is `["ios","android"]` in `app.json`, deliberately.** The app
-cannot run on web (the vault needs SecureStore), and leaving web enabled made
-`eas update` fail trying to bundle `expo-sqlite`'s web worker.
+**`slug` is `decent-wallet` and must stay that way.** It has to match the slug
+of the EAS project that `extra.eas.projectId` points at, and Expo does not allow
+a slug to be renamed. Changing it fails the build. It's internal and never shown
+to users.
 
-**Local builds can fail with `Library not loaded: ReactNativeDependencies`.**
-That is stale Xcode DerivedData disagreeing with a changed pod graph, not a code
+**`platforms` is `["ios","android"]` deliberately.** The app can't run on web
+(the vault needs SecureStore), and leaving web enabled made `eas update` fail
+trying to bundle `expo-sqlite`'s web worker.
+
+**Local iOS builds can fail with `Library not loaded: ReactNativeDependencies`.**
+That's stale Xcode DerivedData disagreeing with a changed pod graph, not a code
 problem:
 
 ```bash
