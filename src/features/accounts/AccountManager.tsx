@@ -237,10 +237,10 @@ function ImportPhraseSheet({ visible, onClose }: { visible: boolean; onClose: ()
     try {
       await addSeed(vaultKey, { mnemonic: cleaned, label: label.trim() || undefined });
       hapticSuccess();
-      toast.success("Recovery phrase added");
+      toast.success("Recovery phrase imported");
       close();
     } catch (e: any) {
-      setErr(e?.message ?? "Failed to add recovery phrase");
+      setErr(e?.message ?? "Couldn't import that recovery phrase");
     } finally {
       setBusy(false);
     }
@@ -257,7 +257,15 @@ function ImportPhraseSheet({ visible, onClose }: { visible: boolean; onClose: ()
     >
       <Backdrop>
         <SheetShell>
-          <SheetHeader title="Add recovery phrase" onClose={close} />
+          <SheetHeader title="Import recovery phrase" onClose={close} />
+
+          {/* The model, stated where the confusion happens rather than in a
+              FAQ nobody opens: this adds a PHRASE to the wallet, not a second
+              wallet. Without this line "recovery phrase" reads as jargon. */}
+          <T variant="caption" color={theme.muted}>
+            Adds another phrase to this wallet. Its accounts appear alongside your
+            existing ones, grouped by the phrase they came from.
+          </T>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.md }}>
             <View style={{ gap: 8 }}>
@@ -359,7 +367,7 @@ function ImportPhraseSheet({ visible, onClose }: { visible: boolean; onClose: ()
 
             {err ? <T color={theme.danger}>{err}</T> : null}
 
-            <Button title="Add phrase" loading={busy} disabled={!complete} onPress={confirm} />
+            <Button title="Import phrase" loading={busy} disabled={!complete} onPress={confirm} />
             <Button title="Cancel" variant="outline" disabled={busy} onPress={close} />
           </ScrollView>
         </SheetShell>
@@ -775,9 +783,15 @@ export function AccountManager() {
                     <Ionicons name="download-outline" size={20} color={theme.text} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <T weight="semibold">Add a recovery phrase</T>
+                    {/* "Import" is the word people go looking for — every other
+                        wallet uses it, and a tester told us "add a recovery
+                        phrase" read as something they'd never seen. The OBJECT
+                        stays "recovery phrase" though: you are not importing a
+                        second wallet, you are adding another phrase to this
+                        one, and its accounts appear alongside the rest. */}
+                    <T weight="semibold">Import recovery phrase</T>
                     <T variant="caption" color={theme.muted}>
-                      Bring in another wallet — all of its accounts
+                      Bring in a phrase from another wallet, with all its accounts
                     </T>
                   </View>
                 </Pressable>
