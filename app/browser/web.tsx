@@ -193,7 +193,7 @@ function sanitizeEip712Types(types: unknown) {
 function injected() {
   return `
     (function () {
-      if (window.ethereum && window.ethereum.isDecentroneum) { return true; }
+      if (window.ethereum && (window.ethereum.isDecentroneum || window.ethereum.isDecentWallet)) { return true; }
 
       var pending = {};
       var rid = 0;
@@ -270,7 +270,28 @@ function injected() {
       }
 
       var ethereum = {
+        // ─── BOTH flags, deliberately ────────────────────────────────────
+        //
+        // This is a PUBLIC INTERFACE. dApps sniff it to decide whether they
+        // are running inside our wallet, exactly as they sniff isMetaMask.
+        //
+        // Renaming it to match the app's rebrand silently broke
+        // app.decentroneum.com, which gates its entire connect flow on
+        // isDecentWallet (see src/lib/decentWallet.ts in the web repo). The
+        // dApp stopped recognising the wallet and fell through to a generic
+        // "Connect Wallet" modal offering MetaMask and Rabby — inside our own
+        // wallet's browser.
+        //
+        // A flag other people's deployed code reads cannot be renamed in one
+        // move: their bundle is already cached in users' browsers, and we
+        // cannot update it atomically with ours. So both names are announced.
+        // New integrations should read isDecentroneum.
+        //
+        // isDecentWallet may only be dropped once every dApp that reads it has
+        // shipped support for the new name — which, for third-party sites, may
+        // be never. Assume it is permanent.
         isDecentroneum: true,
+        isDecentWallet: true, // legacy alias — see above before removing
         isMetaMask: false,
 
         // Compatibility niceties
