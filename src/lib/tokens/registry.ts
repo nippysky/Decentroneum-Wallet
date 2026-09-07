@@ -31,7 +31,21 @@ const REGISTRY_URL = "https://decentroneum.com/api/token-list.json";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 const FETCH_TIMEOUT_MS = 8000;
 
-/** Always available offline — the Electroneum Smart Chain default token. */
+/**
+ * Bundled so a first launch still shows something useful.
+ *
+ * This list is the floor, not the catalogue. `getTokenList` reaches it only
+ * when there is no warm cache AND the registry fetch fails — i.e. a fresh
+ * install on a bad network. That is not hypothetical: a tester on a new
+ * TestFlight install hit exactly that and saw DCNT alone, because DCNT was the
+ * only entry here, and reasonably concluded BOLT had been dropped.
+ *
+ * So the floor holds every token that has been approved long enough to be
+ * considered permanent. Newly listed tokens are deliberately NOT added — they
+ * arrive via the registry within six hours and do not need a release. Add an
+ * entry here only when a token is established enough that showing it offline
+ * is safer than showing nothing.
+ */
 export const DEFAULT_TOKENS: ListedToken[] = [
   {
     address: "0xE74e4E7A064310466f3bdBd3F3Ce4e8c8F7CF1d5",
@@ -39,6 +53,13 @@ export const DEFAULT_TOKENS: ListedToken[] = [
     name: "Decentroneum",
     decimals: 18,
     logoURI: "https://static.electroswap.io/launchpad/presales/0x34b0dde73Ce7Dc241444B2d8A6Fe3dcB44c5FbEC_logo.webp",
+  },
+  {
+    address: "0x043fAa1b5C5FC9a7dc35171f290c29ECDE0cCff1",
+    symbol: "BOLT",
+    name: "ElectroSwap",
+    decimals: 18,
+    logoURI: "https://assets.coingecko.com/coins/images/54787/standard/bolt.jpg?1741576480",
   },
 ];
 

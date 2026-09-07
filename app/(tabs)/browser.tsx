@@ -22,6 +22,7 @@ import { RADIUS, SPACING } from "@/src/theme/tokens";
 const FEATURED = [
   { name: "Decentroneum D-App", url: "https://app.decentroneum.com" },
   { name: "ElectroSwap", url: "https://electroswap.io" },
+  { name: "ETN Name Service", url: "https://nameservice.planetzephyros.xyz" },
   { name: "Electroneum Explorer", url: "https://blockexplorer.electroneum.com" },
 ];
 

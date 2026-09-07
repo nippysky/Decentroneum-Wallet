@@ -16,6 +16,7 @@ import { ReceiveModal } from "@/src/components/ReceiveModal";
 import { CircleAction } from "@/src/components/CircleAction";
 import { Skeleton } from "@/src/components/Skeleton";
 import { RADIUS, SPACING } from "@/src/theme/tokens";
+import { friendlyNetworkError } from "@/src/lib/net/errors";
 
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { useSession } from "@/src/state/session";
@@ -274,7 +275,9 @@ export default function Wallet() {
     } catch (e: any) {
       // Only surface the error for user-initiated loads — a failed
       // background poll should leave the last-known balance alone.
-      if (!silent) setErr(e?.message ?? "Failed to load balance");
+      // Never `e.message` — see lib/net/errors. A user once saw Ankr's
+      // "no runners?!" printed in red under their balance.
+      if (!silent) setErr(friendlyNetworkError(e, "balance"));
     } finally {
       // ALWAYS clear, even on a silent refresh.
       //
