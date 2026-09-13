@@ -510,6 +510,48 @@ async function refreshPriceHistoryFor(pool: string, side: "base" | "quote", rang
 let lastExhaustedNoticeAt = 0;
 const EXHAUSTED_NOTICE_EVERY_MS = 60 * 60_000;
 
+/**
+ * Is this (series, range) due for a refresh?
+ *
+ * ─── The bug this replaces ──────────────────────────────────────────────────
+ *
+ * The old test was:
+ *
+ *     const empty = getPriceHistory(pool, range).length === 0;
+ *     if (!due && !empty) continue;
+ *
+ * which skips only when NOT due AND NOT empty. The intent was that a newly
+ * listed token backfills straight away instead of waiting up to 24 hours for
+ * its slot. The flaw is that it never distinguished
+ *
+ *     "we have never fetched this"          (backfill — correct to fetch now)
+ *
+ * from
+ *
+ *     "we fetched it and the honest answer was no trades"  (nothing to retry)
+ *
+ * On a chain this quiet the second case is permanent. DCNT stopped trading on
+ * 31 August, its 24h window emptied, and that one series then refetched on
+ * EVERY 60-second tick — 1,440 calls a day from a single range — until the
+ * month's entire credit allowance was gone by the 13th. Every chart froze,
+ * including the ones that were perfectly healthy.
+ *
+ * An empty series is a legitimate, cacheable answer. Only the ABSENCE of a
+ * successful fetch justifies ignoring the schedule, and `lastHistoryRefresh`
+ * already records exactly that — it is set only when a fetch succeeds.
+ */
+function shouldRefreshSeries(key: string, range: Range, force: boolean, now: number): boolean {
+  if (force) return true;
+
+  const lastOk = lastHistoryRefresh.get(key);
+
+  // Never successfully fetched — a new listing, or a restart before the first
+  // pass. Fetch now rather than leaving a blank chart for up to a day.
+  if (lastOk === undefined) return true;
+
+  return now - lastOk >= RANGES[range].refreshMs;
+}
+
 export async function refreshPriceHistory(force = false): Promise<void> {
   // Bail out of the WHOLE cycle when the month's credits are gone. Each
   // (series, range) would otherwise be walked, attempt a call, be refused, and
@@ -535,9 +577,7 @@ export async function refreshPriceHistory(force = false): Promise<void> {
   // most likely to be looked at.
   for (const range of RANGE_KEYS) {
     const key = `${NATIVE_HISTORY_KEY}:${range}`;
-    const due = force || now - (lastHistoryRefresh.get(key) ?? 0) >= RANGES[range].refreshMs;
-    const empty = getPriceHistory(NATIVE_HISTORY_KEY, range).length === 0;
-    if (!due && !empty) continue;
+    if (!shouldRefreshSeries(key, range, force, now)) continue;
 
     if (await refreshNativeHistoryFor(range)) lastHistoryRefresh.set(key, now);
   }
@@ -545,11 +585,7 @@ export async function refreshPriceHistory(force = false): Promise<void> {
   for (const m of mapped) {
     for (const range of RANGE_KEYS) {
       const key = `${m.pool}:${range}`;
-      const due = force || now - (lastHistoryRefresh.get(key) ?? 0) >= RANGES[range].refreshMs;
-      // An empty cache means this is a newly listed token — backfill it now
-      // regardless of where it sits in the refresh cycle.
-      const empty = getPriceHistory(m.pool, range).length === 0;
-      if (!due && !empty) continue;
+      if (!shouldRefreshSeries(key, range, force, now)) continue;
 
       const ok = await refreshPriceHistoryFor(m.pool, m.side, range);
       // Only record the attempt if it WORKED. Marking a failed fetch as
