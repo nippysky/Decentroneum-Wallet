@@ -36,6 +36,16 @@ process.env.MARKET_API_MONTHLY_CAP = "10";
 process.env.MARKET_API_MIN_SPACING_MS = "0";
 process.env.MARKET_API_MAX_CALLS_PER_MINUTE = "10000";
 process.env.MARKET_API_JITTER_MS = "0";
+// Ceilings small enough that the runaway test finishes in milliseconds, but
+// comfortably above what the accounting section below reserves (8 calls).
+//
+// They were 6/8, which tripped the ceiling DURING the accounting tests. Those
+// assertions still passed — they check billing, which is independent of
+// whether a reservation succeeded — so the suite went green while quietly not
+// testing what it claimed. Ceilings are per-provider, so the runaway test
+// still gets a clean slate at these higher numbers.
+process.env.MARKET_API_MAX_CALLS_PER_HOUR = "20";
+process.env.MARKET_API_MAX_CALLS_PER_DAY = "25";
 
 // Imported AFTER the env is set: config.ts and db.ts both read it at module load.
 const { acquireCall, recordBillableCall, monthlyUsed, isBudgetExhausted, budgetStatus } =
@@ -85,6 +95,47 @@ async function main() {
 
   const s = budgetStatus(P);
   check("status reports used and cap truthfully", s.monthlyUsed === 10 && s.monthlyCap === 10);
+
+  // ── Runaway protection ───────────────────────────────────────────────────
+  //
+  // The regression that matters. Twice a scheduler bug made one series refetch
+  // every 60 seconds and drained a 10,000-credit month. Nothing stopped it,
+  // because the only guard was the monthly cap — which notices after the money
+  // is gone. These assert that a loop is now cut off long before that.
+  console.log("\n═══ runaway protection ═══\n");
+
+  const R = "runaway-provider"; // fresh provider: its own call history
+  let allowed = 0;
+  let refused = 0;
+
+  // The accounting section above must NOT have tripped a ceiling, or its
+  // "reservations" were refusals and it tested nothing. Assert that directly
+  // rather than trusting it — that is exactly how the weaker version passed.
+  const ps = budgetStatus(P);
+  check(
+    `accounting section stayed under its ceiling (${ps.callsInLastHour}/${ps.maxCallsPerHour})`,
+    ps.callsInLastHour < ps.maxCallsPerHour
+  );
+
+  // Simulate a broken scheduler hammering the API. Ceilings are 20/hour and
+  // 25/day in this test, so a correct implementation stops at 20.
+  for (let i = 0; i < 100; i += 1) {
+    if (await acquireCall(R)) allowed += 1;
+    else refused += 1;
+  }
+
+  check(`a 100-call loop is cut off (allowed ${allowed}, refused ${refused})`, allowed <= 20);
+  check("the excess calls were REFUSED, not queued", refused >= 80);
+
+  const rs = budgetStatus(R);
+  check("hourly ceiling is reported in status", rs.maxCallsPerHour === 20);
+  check("daily ceiling is reported in status", rs.maxCallsPerDay === 25);
+  check("calls in the last hour are counted", rs.callsInLastHour === allowed);
+  check("calls in the last day are counted", rs.callsInLastDay === allowed);
+
+  // A ceiling must refuse WITHOUT spending monthly credits: nothing reached
+  // the provider, so nothing may be billed.
+  check("a refused call bills no monthly credit", monthlyUsed(R) === 0);
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 

@@ -95,6 +95,40 @@ Two counters exist and they are not the same thing — see `src/apiBudget.ts`:
 - **rate** (`api_calls`) counts every attempt, including refused ones
 - **credits** (`api_usage`) counts only responses the provider actually served
 
+### Call ceilings — read before changing them
+
+The monthly cap is not enough on its own. It has failed twice: both times a
+scheduler bug made one series refetch every 60 seconds — 60 calls an hour
+against a design of eight — and drained the whole month before anyone noticed,
+because a monthly cap only tells you after the money is gone.
+
+There are now hard ceilings at two timescales, both enforced in `apiBudget.ts`:
+
+| Ceiling | Default | Normal usage | Catches |
+| --- | --- | --- | --- |
+| per hour | 80 | ~8 | a fast loop, within minutes |
+| per day | 400 | ~193 | a **slow** loop — the failure mode we actually had |
+
+The daily one is the important guard. A bug burning 60 calls/hour slips under
+any sane hourly ceiling but still destroys a month; the daily cap stops it in
+hours, costing a day's budget instead of thirty.
+
+Both **refuse** rather than queue. Waiting would only defer the same spend —
+the point is to stop, keep serving cached data, and log loudly.
+
+**If you hit a ceiling, do not raise it first.** Steady state is ~8 calls/hour;
+hitting 80 means something is looping. Check the refresh scheduler in
+`marketData.ts` — specifically that no code path bypasses the `refreshMs`
+interval. Raising the ceiling to make the message go away restores exactly the
+condition that emptied the budget twice.
+
+Override with `MARKET_API_MAX_CALLS_PER_HOUR` / `MARKET_API_MAX_CALLS_PER_DAY`
+if a deployment genuinely needs different limits. `0` disables a ceiling — and
+removes the only thing standing between a loop and your month.
+
+Live counts are exposed at `/market/status` as `callsInLastHour` and
+`callsInLastDay`, so a runaway is visible without SSH.
+
 Verify the accounting and see the live figures:
 
 ```bash

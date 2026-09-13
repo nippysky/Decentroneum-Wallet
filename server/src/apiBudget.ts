@@ -67,8 +67,57 @@ db.exec(`
 `);
 
 const WINDOW_MS = 60_000;
+const HOUR_MS = 60 * 60_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * How long individual call rows are kept.
+ *
+ * Was one minute, which was all the per-minute rate limiter needed. The hourly
+ * and daily ceilings below need a longer memory, so rows now live a day. At the
+ * daily ceiling that is a few hundred rows — nothing.
+ */
+const RETENTION_MS = DAY_MS;
+
+/**
+ * ─── Why ceilings exist on top of a monthly cap ─────────────────────────────
+ *
+ * The monthly cap alone has now failed twice, because it only notices after
+ * the money is gone. Both incidents were the same shape: a scheduler bug made
+ * one series refetch every 60 seconds — 60 calls an hour against a design of
+ * eight — and quietly drained a 10,000-credit month in under a fortnight. The
+ * arithmetic was correct on paper each time. Paper is not a control.
+ *
+ * So the budget is defended at three timescales, because runaways come in
+ * different speeds:
+ *
+ *   per MINUTE — the provider's own rate limit. Makes us wait, never refuses.
+ *   per HOUR   — catches a catastrophic loop (hundreds of calls a minute) in
+ *                minutes rather than days.
+ *   per DAY    — catches a SLOW runaway. This is the one that matters: a bug
+ *                burning 60/hour slips under any sane hourly ceiling but still
+ *                destroys a month. At 400/day it is stopped within hours,
+ *                costing a day's budget instead of the month.
+ *
+ * Both ceilings REFUSE rather than queue. Waiting would just defer the same
+ * spend; the point is to stop, leave the cached data serving, and be loud.
+ *
+ * Defaults sit well clear of normal operation: steady state is ~8 calls/hour
+ * and ~193/day, and a full startup backfill is about 20 in one burst, so
+ * several restarts in an hour still pass comfortably.
+ */
+const DEFAULT_MAX_PER_HOUR = 80;
+const DEFAULT_MAX_PER_DAY = 400;
+
+const maxPerHour = Number(process.env.MARKET_API_MAX_CALLS_PER_HOUR ?? DEFAULT_MAX_PER_HOUR);
+const maxPerDay = Number(process.env.MARKET_API_MAX_CALLS_PER_DAY ?? DEFAULT_MAX_PER_DAY);
+
+/** tryReserve returns this instead of a wait time when a ceiling is hit. */
+const REFUSED = -1;
 
 let warnedAboutKeylessTier = false;
+let lastCeilingWarnAt = 0;
+const CEILING_WARN_EVERY_MS = 15 * 60_000;
 
 /** Doubling per 429, capped — 8x of a 6s base is 48s between calls. */
 const MAX_PENALTY = 8;
@@ -125,7 +174,22 @@ const tryReserve = db.transaction((provider: string, maxPerMinute: number, minSp
     throttle.penalty = relaxed;
   }
 
-  db.prepare("DELETE FROM api_calls WHERE called_at < ?").run(now - WINDOW_MS);
+  db.prepare("DELETE FROM api_calls WHERE called_at < ?").run(now - RETENTION_MS);
+
+  // ── Hard ceilings, checked BEFORE any waiting ────────────────────────────
+  //
+  // Deliberately ahead of the spacing logic: if we are over a ceiling there is
+  // nothing to wait for that would make the call acceptable, so refuse
+  // immediately rather than sleeping and retrying.
+  const countSince = (from: number): number =>
+    (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM api_calls WHERE provider = ? AND called_at >= ?")
+        .get(provider, from) as { n: number }
+    ).n;
+
+  if (maxPerHour > 0 && countSince(now - HOUR_MS) >= maxPerHour) return REFUSED;
+  if (maxPerDay > 0 && countSince(now - DAY_MS) >= maxPerDay) return REFUSED;
 
   const spacing = Math.ceil(minSpacingMs * throttle.penalty);
 
@@ -141,9 +205,14 @@ const tryReserve = db.transaction((provider: string, maxPerMinute: number, minSp
 
   const effectiveMax = Math.max(1, Math.floor(maxPerMinute / throttle.penalty));
   if (used.n >= effectiveMax) {
+    // Scoped to the MINUTE window on purpose. Rows now live for a day (the
+    // ceilings need that memory), so an unscoped "oldest row" would be up to
+    // 24h old and produce a nonsense wait of nearly a full day.
     const oldest = db
-      .prepare("SELECT called_at FROM api_calls WHERE provider = ? ORDER BY called_at ASC LIMIT 1")
-      .get(provider) as { called_at: number } | undefined;
+      .prepare(
+        "SELECT called_at FROM api_calls WHERE provider = ? AND called_at >= ? ORDER BY called_at ASC LIMIT 1"
+      )
+      .get(provider, now - WINDOW_MS) as { called_at: number } | undefined;
     return oldest ? Math.max(100, WINDOW_MS - (now - oldest.called_at) + 50) : 1_000;
   }
 
@@ -198,6 +267,26 @@ export async function acquireCall(provider: string): Promise<boolean> {
 
   for (;;) {
     const waitMs = tryReserve(provider, config.marketApiMaxCallsPerMinute, config.marketApiMinSpacingMs);
+
+    // An hourly or daily ceiling was hit. Refuse — do not sleep and retry,
+    // because waiting only defers the same spend. Cached data keeps serving.
+    if (waitMs === REFUSED) {
+      const now = Date.now();
+      if (now - lastCeilingWarnAt >= CEILING_WARN_EVERY_MS) {
+        lastCeilingWarnAt = now;
+        const s = budgetStatus(provider);
+        console.error(
+          `[budget] CALL CEILING HIT — refusing ${provider} calls. ` +
+            `${s.callsInLastHour}/${s.maxCallsPerHour} this hour, ` +
+            `${s.callsInLastDay}/${s.maxCallsPerDay} today, ` +
+            `${s.monthlyUsed}/${s.monthlyCap ?? "∞"} this month. ` +
+            `Normal is ~8/hour and ~193/day, so this means something is looping. ` +
+            `Check the refresh scheduler before raising the ceiling.`
+        );
+      }
+      return false;
+    }
+
     if (waitMs === 0) {
       // Jitter AFTER reserving, so a fixed schedule never lands on the same
       // millisecond offset every cycle and align with a rate-limit window.
@@ -276,16 +365,25 @@ export function isBudgetExhausted(provider: string): boolean {
 export function budgetStatus(provider: string) {
   const t = readThrottle(provider);
   const now = Date.now();
-  const used = db
-    .prepare("SELECT COUNT(*) AS n FROM api_calls WHERE provider = ? AND called_at >= ?")
-    .get(provider, now - WINDOW_MS) as { n: number };
+  const countSince = (from: number): number =>
+    (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM api_calls WHERE provider = ? AND called_at >= ?")
+        .get(provider, from) as { n: number }
+    ).n;
 
   return {
     provider,
     month: monthKey(),
     monthlyUsed: monthlyUsed(provider),
     monthlyCap: config.marketApiMonthlyCap > 0 ? config.marketApiMonthlyCap : null,
-    callsInLastMinute: used.n,
+    // Surfaced at /market/status so a runaway is visible from outside the box,
+    // without SSH. Watch callsInLastHour: ~8 is healthy, 60+ means a loop.
+    callsInLastHour: countSince(now - HOUR_MS),
+    maxCallsPerHour: maxPerHour,
+    callsInLastDay: countSince(now - DAY_MS),
+    maxCallsPerDay: maxPerDay,
+    callsInLastMinute: countSince(now - WINDOW_MS),
     maxCallsPerMinute: config.marketApiMaxCallsPerMinute,
     minSpacingMs: config.marketApiMinSpacingMs,
     // > 1 means we've been throttled and are deliberately running slower.
